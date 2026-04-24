@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, X, ArrowUp, ArrowDown, Upload } from "lucide-react";
 
 export const Route = createFileRoute("/playlists/$slug/edit")({
   component: EditPlaylist,
@@ -27,6 +27,15 @@ function EditPlaylist() {
   const [items, setItems] = useState<Track[]>([]); // ordered tracks in playlist
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // Inline upload form state
+  const [showUpload, setShowUpload] = useState(false);
+  const [upTitle, setUpTitle] = useState("");
+  const [upArtist, setUpArtist] = useState("");
+  const [upAlbum, setUpAlbum] = useState("");
+  const [upAudio, setUpAudio] = useState<File | null>(null);
+  const [upCover, setUpCover] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) nav({ to: "/auth" });
@@ -101,6 +110,83 @@ function EditPlaylist() {
     toast.success("Added");
   }
 
+  async function getAudioDuration(file: File): Promise<number | null> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const a = new Audio();
+      a.preload = "metadata";
+      a.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve(isFinite(a.duration) ? Math.round(a.duration) : null);
+      };
+      a.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      a.src = url;
+    });
+  }
+
+  async function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!upAudio || !user || !playlist) return;
+    setUploading(true);
+    try {
+      const duration = await getAudioDuration(upAudio);
+
+      const audioPath = `${user.id}/audio/${Date.now()}-${upAudio.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error: audioErr } = await supabase.storage
+        .from("tracks")
+        .upload(audioPath, upAudio, { contentType: upAudio.type });
+      if (audioErr) throw audioErr;
+      const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
+
+      let cover_url: string | null = null;
+      if (upCover) {
+        const coverPath = `${user.id}/covers/${Date.now()}-${upCover.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { error: coverErr } = await supabase.storage
+          .from("tracks")
+          .upload(coverPath, upCover, { contentType: upCover.type });
+        if (coverErr) throw coverErr;
+        cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
+      }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from("tracks")
+        .insert({
+          title: upTitle,
+          artist: upArtist,
+          album: upAlbum || null,
+          audio_url,
+          cover_url,
+          duration_seconds: duration,
+          uploaded_by: user.id,
+        })
+        .select("id,title,artist,album,cover_url")
+        .single();
+      if (insertErr) throw insertErr;
+
+      const newTrack = inserted as Track;
+      // Add to playlist + library list
+      await persistOrder([...items, newTrack]);
+      setAllTracks((prev) => [newTrack, ...prev]);
+
+      // Reset form
+      setUpTitle("");
+      setUpArtist("");
+      setUpAlbum("");
+      setUpAudio(null);
+      setUpCover(null);
+      setShowUpload(false);
+      toast.success("Uploaded and added to playlist");
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+
   async function removeAt(idx: number) {
     const next = items.filter((_, i) => i !== idx);
     await persistOrder(next);
@@ -136,10 +222,97 @@ function EditPlaylist() {
       <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
         ← {playlist.title}
       </Link>
-      <h1 className="mt-6 text-4xl">Edit tracks</h1>
-      <p className="mt-3 text-sm text-muted-foreground">
-        Add tracks from your library and arrange the order. {busy && "Saving…"}
-      </p>
+      <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl">Edit tracks</h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Add tracks from your library or upload new ones. {busy && "Saving…"}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowUpload((v) => !v)}
+          className="flex items-center gap-2 bg-foreground px-4 py-2.5 text-xs uppercase tracking-widest text-background transition-opacity hover:opacity-90"
+        >
+          <Upload size={14} />
+          {showUpload ? "Close" : "Upload music"}
+        </button>
+      </div>
+
+      {showUpload && (
+        <form
+          onSubmit={handleUpload}
+          className="mt-8 space-y-5 border border-border bg-accent/30 p-6"
+        >
+          <h2 className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+            Upload a new track
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Title <span className="text-foreground">*</span>
+              </label>
+              <input
+                required
+                value={upTitle}
+                onChange={(e) => setUpTitle(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Artist <span className="text-foreground">*</span>
+              </label>
+              <input
+                required
+                value={upArtist}
+                onChange={(e) => setUpArtist(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Album
+              </label>
+              <input
+                value={upAlbum}
+                onChange={(e) => setUpAlbum(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Audio file <span className="text-foreground">*</span>
+              </label>
+              <input
+                type="file"
+                accept="audio/*"
+                required
+                onChange={(e) => setUpAudio(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-background file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Cover art
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setUpCover(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-background file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={uploading || !upAudio || !upTitle || !upArtist}
+            className="bg-foreground px-6 py-3 text-xs uppercase tracking-widest text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {uploading ? "Uploading…" : "Upload & add to playlist"}
+          </button>
+        </form>
+      )}
+
 
       <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-2">
         {/* In playlist */}

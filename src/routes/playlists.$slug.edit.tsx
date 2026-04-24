@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, X, ArrowUp, ArrowDown, Upload } from "lucide-react";
 
 export const Route = createFileRoute("/playlists/$slug/edit")({
   component: EditPlaylist,
@@ -27,6 +27,15 @@ function EditPlaylist() {
   const [items, setItems] = useState<Track[]>([]); // ordered tracks in playlist
   const [allTracks, setAllTracks] = useState<Track[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // Inline upload form state
+  const [showUpload, setShowUpload] = useState(false);
+  const [upTitle, setUpTitle] = useState("");
+  const [upArtist, setUpArtist] = useState("");
+  const [upAlbum, setUpAlbum] = useState("");
+  const [upAudio, setUpAudio] = useState<File | null>(null);
+  const [upCover, setUpCover] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) nav({ to: "/auth" });

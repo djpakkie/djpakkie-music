@@ -222,10 +222,97 @@ function EditPlaylist() {
       <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
         ← {playlist.title}
       </Link>
-      <h1 className="mt-6 text-4xl">Edit tracks</h1>
-      <p className="mt-3 text-sm text-muted-foreground">
-        Add tracks from your library and arrange the order. {busy && "Saving…"}
-      </p>
+      <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-4xl">Edit tracks</h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Add tracks from your library or upload new ones. {busy && "Saving…"}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowUpload((v) => !v)}
+          className="flex items-center gap-2 bg-foreground px-4 py-2.5 text-xs uppercase tracking-widest text-background transition-opacity hover:opacity-90"
+        >
+          <Upload size={14} />
+          {showUpload ? "Close" : "Upload music"}
+        </button>
+      </div>
+
+      {showUpload && (
+        <form
+          onSubmit={handleUpload}
+          className="mt-8 space-y-5 border border-border bg-accent/30 p-6"
+        >
+          <h2 className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+            Upload a new track
+          </h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Title <span className="text-foreground">*</span>
+              </label>
+              <input
+                required
+                value={upTitle}
+                onChange={(e) => setUpTitle(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Artist <span className="text-foreground">*</span>
+              </label>
+              <input
+                required
+                value={upArtist}
+                onChange={(e) => setUpArtist(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Album
+              </label>
+              <input
+                value={upAlbum}
+                onChange={(e) => setUpAlbum(e.target.value)}
+                className="w-full border border-border bg-background px-3 py-2.5 text-sm focus:border-foreground focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Audio file <span className="text-foreground">*</span>
+              </label>
+              <input
+                type="file"
+                accept="audio/*"
+                required
+                onChange={(e) => setUpAudio(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-background file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+                Cover art
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setUpCover(e.target.files?.[0] ?? null)}
+                className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-background file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={uploading || !upAudio || !upTitle || !upArtist}
+            className="bg-foreground px-6 py-3 text-xs uppercase tracking-widest text-background transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {uploading ? "Uploading…" : "Upload & add to playlist"}
+          </button>
+        </form>
+      )}
+
 
       <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-2">
         {/* In playlist */}

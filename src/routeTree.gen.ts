@@ -12,6 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlaylistsIndexRouteImport } from './routes/playlists.index'
+import { Route as PlaylistsNewRouteImport } from './routes/playlists.new'
+import { Route as PlaylistsSlugRouteImport } from './routes/playlists.$slug'
+import { Route as PlaylistsSlugEditRouteImport } from './routes/playlists.$slug.edit'
 
 const UploadRoute = UploadRouteImport.update({
   id: '/upload',
@@ -28,35 +32,92 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlaylistsIndexRoute = PlaylistsIndexRouteImport.update({
+  id: '/playlists/',
+  path: '/playlists/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlaylistsNewRoute = PlaylistsNewRouteImport.update({
+  id: '/playlists/new',
+  path: '/playlists/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlaylistsSlugRoute = PlaylistsSlugRouteImport.update({
+  id: '/playlists/$slug',
+  path: '/playlists/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlaylistsSlugEditRoute = PlaylistsSlugEditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => PlaylistsSlugRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/upload': typeof UploadRoute
+  '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
+  '/playlists/new': typeof PlaylistsNewRoute
+  '/playlists/': typeof PlaylistsIndexRoute
+  '/playlists/$slug/edit': typeof PlaylistsSlugEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/upload': typeof UploadRoute
+  '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
+  '/playlists/new': typeof PlaylistsNewRoute
+  '/playlists': typeof PlaylistsIndexRoute
+  '/playlists/$slug/edit': typeof PlaylistsSlugEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/upload': typeof UploadRoute
+  '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
+  '/playlists/new': typeof PlaylistsNewRoute
+  '/playlists/': typeof PlaylistsIndexRoute
+  '/playlists/$slug/edit': typeof PlaylistsSlugEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/upload'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/upload'
+    | '/playlists/$slug'
+    | '/playlists/new'
+    | '/playlists/'
+    | '/playlists/$slug/edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/upload'
-  id: '__root__' | '/' | '/auth' | '/upload'
+  to:
+    | '/'
+    | '/auth'
+    | '/upload'
+    | '/playlists/$slug'
+    | '/playlists/new'
+    | '/playlists'
+    | '/playlists/$slug/edit'
+  id:
+    | '__root__'
+    | '/'
+    | '/auth'
+    | '/upload'
+    | '/playlists/$slug'
+    | '/playlists/new'
+    | '/playlists/'
+    | '/playlists/$slug/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   UploadRoute: typeof UploadRoute
+  PlaylistsSlugRoute: typeof PlaylistsSlugRouteWithChildren
+  PlaylistsNewRoute: typeof PlaylistsNewRoute
+  PlaylistsIndexRoute: typeof PlaylistsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,13 +143,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/playlists/': {
+      id: '/playlists/'
+      path: '/playlists'
+      fullPath: '/playlists/'
+      preLoaderRoute: typeof PlaylistsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/playlists/new': {
+      id: '/playlists/new'
+      path: '/playlists/new'
+      fullPath: '/playlists/new'
+      preLoaderRoute: typeof PlaylistsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/playlists/$slug': {
+      id: '/playlists/$slug'
+      path: '/playlists/$slug'
+      fullPath: '/playlists/$slug'
+      preLoaderRoute: typeof PlaylistsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/playlists/$slug/edit': {
+      id: '/playlists/$slug/edit'
+      path: '/edit'
+      fullPath: '/playlists/$slug/edit'
+      preLoaderRoute: typeof PlaylistsSlugEditRouteImport
+      parentRoute: typeof PlaylistsSlugRoute
+    }
   }
 }
+
+interface PlaylistsSlugRouteChildren {
+  PlaylistsSlugEditRoute: typeof PlaylistsSlugEditRoute
+}
+
+const PlaylistsSlugRouteChildren: PlaylistsSlugRouteChildren = {
+  PlaylistsSlugEditRoute: PlaylistsSlugEditRoute,
+}
+
+const PlaylistsSlugRouteWithChildren = PlaylistsSlugRoute._addFileChildren(
+  PlaylistsSlugRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   UploadRoute: UploadRoute,
+  PlaylistsSlugRoute: PlaylistsSlugRouteWithChildren,
+  PlaylistsNewRoute: PlaylistsNewRoute,
+  PlaylistsIndexRoute: PlaylistsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

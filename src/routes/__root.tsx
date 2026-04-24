@@ -1,6 +1,11 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { AuthProvider } from "@/lib/auth";
+import { PlayerProvider } from "@/lib/player-context";
+import { SiteHeader } from "@/components/site-header";
+import { NowPlayingBar } from "@/components/now-playing-bar";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -65,5 +70,18 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <AuthProvider>
+      <PlayerProvider>
+        <div className="flex min-h-screen flex-col pb-24">
+          <SiteHeader />
+          <main className="flex-1">
+            <Outlet />
+          </main>
+          <NowPlayingBar />
+          <Toaster />
+        </div>
+      </PlayerProvider>
+    </AuthProvider>
+  );
 }

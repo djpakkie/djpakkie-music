@@ -110,6 +110,83 @@ function EditPlaylist() {
     toast.success("Added");
   }
 
+  async function getAudioDuration(file: File): Promise<number | null> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const a = new Audio();
+      a.preload = "metadata";
+      a.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve(isFinite(a.duration) ? Math.round(a.duration) : null);
+      };
+      a.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+      a.src = url;
+    });
+  }
+
+  async function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!upAudio || !user || !playlist) return;
+    setUploading(true);
+    try {
+      const duration = await getAudioDuration(upAudio);
+
+      const audioPath = `${user.id}/audio/${Date.now()}-${upAudio.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error: audioErr } = await supabase.storage
+        .from("tracks")
+        .upload(audioPath, upAudio, { contentType: upAudio.type });
+      if (audioErr) throw audioErr;
+      const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
+
+      let cover_url: string | null = null;
+      if (upCover) {
+        const coverPath = `${user.id}/covers/${Date.now()}-${upCover.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { error: coverErr } = await supabase.storage
+          .from("tracks")
+          .upload(coverPath, upCover, { contentType: upCover.type });
+        if (coverErr) throw coverErr;
+        cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
+      }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from("tracks")
+        .insert({
+          title: upTitle,
+          artist: upArtist,
+          album: upAlbum || null,
+          audio_url,
+          cover_url,
+          duration_seconds: duration,
+          uploaded_by: user.id,
+        })
+        .select("id,title,artist,album,cover_url")
+        .single();
+      if (insertErr) throw insertErr;
+
+      const newTrack = inserted as Track;
+      // Add to playlist + library list
+      await persistOrder([...items, newTrack]);
+      setAllTracks((prev) => [newTrack, ...prev]);
+
+      // Reset form
+      setUpTitle("");
+      setUpArtist("");
+      setUpAlbum("");
+      setUpAudio(null);
+      setUpCover(null);
+      setShowUpload(false);
+      toast.success("Uploaded and added to playlist");
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+
   async function removeAt(idx: number) {
     const next = items.filter((_, i) => i !== idx);
     await persistOrder(next);

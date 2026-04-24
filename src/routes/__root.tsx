@@ -1,6 +1,11 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { AuthProvider } from "@/lib/auth";
+import { PlayerProvider } from "@/lib/player-context";
+import { SiteHeader } from "@/components/site-header";
+import { NowPlayingBar } from "@/components/now-playing-bar";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -29,19 +34,19 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Sonore — Curated music, streamed" },
+      { name: "description", content: "A personal streaming library. Press play." },
+      { property: "og:title", content: "Sonore" },
+      { property: "og:description", content: "A personal streaming library." },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Inter:wght@400;500;600&display=swap",
       },
     ],
   }),
@@ -65,5 +70,18 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <AuthProvider>
+      <PlayerProvider>
+        <div className="flex min-h-screen flex-col pb-24">
+          <SiteHeader />
+          <main className="flex-1">
+            <Outlet />
+          </main>
+          <NowPlayingBar />
+          <Toaster />
+        </div>
+      </PlayerProvider>
+    </AuthProvider>
+  );
 }

@@ -131,51 +131,67 @@ function EditPlaylist() {
     });
   }
 
+  // Core: upload a single audio file & insert track row. Returns the new Track.
+  async function uploadAudioFile(
+    audioFile: File,
+    meta: { title: string; artist: string; album?: string | null; coverFile?: File | null },
+  ): Promise<Track> {
+    if (!user) throw new Error("Not signed in");
+    const duration = await getAudioDuration(audioFile);
+
+    const audioPath = `${user.id}/audio/${Date.now()}-${audioFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { error: audioErr } = await supabase.storage
+      .from("tracks")
+      .upload(audioPath, audioFile, { contentType: audioFile.type });
+    if (audioErr) throw audioErr;
+    const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
+
+    let cover_url: string | null = null;
+    if (meta.coverFile) {
+      const coverPath = `${user.id}/covers/${Date.now()}-${meta.coverFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error: coverErr } = await supabase.storage
+        .from("tracks")
+        .upload(coverPath, meta.coverFile, { contentType: meta.coverFile.type });
+      if (coverErr) throw coverErr;
+      cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
+    }
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from("tracks")
+      .insert({
+        title: meta.title,
+        artist: meta.artist,
+        album: meta.album || null,
+        audio_url,
+        cover_url,
+        duration_seconds: duration,
+        uploaded_by: user.id,
+      })
+      .select("id,title,artist,album,cover_url")
+      .single();
+    if (insertErr) throw insertErr;
+    return inserted as Track;
+  }
+
+  // Derive a clean title from a filename: strip extension, replace separators.
+  function titleFromFilename(name: string): string {
+    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
+  }
+
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!upAudio || !user || !playlist) return;
     setUploading(true);
     try {
-      const duration = await getAudioDuration(upAudio);
-
-      const audioPath = `${user.id}/audio/${Date.now()}-${upAudio.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const { error: audioErr } = await supabase.storage
-        .from("tracks")
-        .upload(audioPath, upAudio, { contentType: upAudio.type });
-      if (audioErr) throw audioErr;
-      const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
-
-      let cover_url: string | null = null;
-      if (upCover) {
-        const coverPath = `${user.id}/covers/${Date.now()}-${upCover.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-        const { error: coverErr } = await supabase.storage
-          .from("tracks")
-          .upload(coverPath, upCover, { contentType: upCover.type });
-        if (coverErr) throw coverErr;
-        cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
-      }
-
-      const { data: inserted, error: insertErr } = await supabase
-        .from("tracks")
-        .insert({
-          title: upTitle,
-          artist: upArtist,
-          album: upAlbum || null,
-          audio_url,
-          cover_url,
-          duration_seconds: duration,
-          uploaded_by: user.id,
-        })
-        .select("id,title,artist,album,cover_url")
-        .single();
-      if (insertErr) throw insertErr;
-
-      const newTrack = inserted as Track;
-      // Add to playlist + library list
+      const newTrack = await uploadAudioFile(upAudio, {
+        title: upTitle,
+        artist: upArtist,
+        album: upAlbum,
+        coverFile: upCover,
+      });
       await persistOrder([...items, newTrack]);
       setAllTracks((prev) => [newTrack, ...prev]);
 
-      // Reset form
       setUpTitle("");
       setUpArtist("");
       setUpAlbum("");
@@ -189,6 +205,49 @@ function EditPlaylist() {
       setUploading(false);
     }
   }
+
+  // Drag-and-drop: accept dropped audio files, upload sequentially, append to playlist.
+  async function handleDroppedFiles(fileList: FileList | File[]) {
+    if (!user || !playlist) return;
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name));
+    if (files.length === 0) {
+      toast.error("Drop audio files only");
+      return;
+    }
+
+    const queue = files.map((f) => ({ name: f.name, status: "pending" as const }));
+    setDropQueue(queue);
+
+    const newTracks: Track[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
+      try {
+        const t = await uploadAudioFile(file, {
+          title: titleFromFilename(file.name),
+          artist: "Unknown artist",
+          album: null,
+          coverFile: null,
+        });
+        newTracks.push(t);
+        setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
+      } catch (err: any) {
+        setDropQueue((q) =>
+          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item)),
+        );
+      }
+    }
+
+    if (newTracks.length > 0) {
+      await persistOrder([...items, ...newTracks]);
+      setAllTracks((prev) => [...newTracks, ...prev]);
+      toast.success(`Added ${newTracks.length} track${newTracks.length > 1 ? "s" : ""}`);
+    }
+
+    // Clear queue after a short delay so users see final state
+    setTimeout(() => setDropQueue([]), 2500);
+  }
+
 
 
   async function removeAt(idx: number) {

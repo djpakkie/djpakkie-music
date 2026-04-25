@@ -69,6 +69,23 @@ function PlaylistsIndex() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-3">
+          {isAdmin && (
+            <Link to="/playlists/new" className="group block">
+              <div className="flex aspect-square w-full items-center justify-center border-2 border-dashed border-border bg-background transition-colors group-hover:border-foreground group-hover:bg-accent/30">
+                <span className="font-display text-6xl text-muted-foreground transition-colors group-hover:text-foreground">
+                  +
+                </span>
+              </div>
+              <div className="mt-4">
+                <div className="font-display text-xl text-muted-foreground transition-colors group-hover:text-foreground">
+                  Add new playlist
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Start a fresh selection.
+                </div>
+              </div>
+            </Link>
+          )}
           {playlists.map((p) => (
             <Link
               key={p.id}

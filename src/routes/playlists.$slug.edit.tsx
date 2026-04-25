@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, X, ArrowUp, ArrowDown, Upload } from "lucide-react";
+import { Plus, X, ArrowUp, ArrowDown, Upload, FileAudio } from "lucide-react";
 
 export const Route = createFileRoute("/playlists/$slug/edit")({
   component: EditPlaylist,
@@ -36,6 +36,10 @@ function EditPlaylist() {
   const [upAudio, setUpAudio] = useState<File | null>(null);
   const [upCover, setUpCover] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Drag-and-drop state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropQueue, setDropQueue] = useState<{ name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]>([]);
 
   useEffect(() => {
     if (!loading && !user) nav({ to: "/auth" });
@@ -127,51 +131,67 @@ function EditPlaylist() {
     });
   }
 
+  // Core: upload a single audio file & insert track row. Returns the new Track.
+  async function uploadAudioFile(
+    audioFile: File,
+    meta: { title: string; artist: string; album?: string | null; coverFile?: File | null },
+  ): Promise<Track> {
+    if (!user) throw new Error("Not signed in");
+    const duration = await getAudioDuration(audioFile);
+
+    const audioPath = `${user.id}/audio/${Date.now()}-${audioFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const { error: audioErr } = await supabase.storage
+      .from("tracks")
+      .upload(audioPath, audioFile, { contentType: audioFile.type });
+    if (audioErr) throw audioErr;
+    const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
+
+    let cover_url: string | null = null;
+    if (meta.coverFile) {
+      const coverPath = `${user.id}/covers/${Date.now()}-${meta.coverFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error: coverErr } = await supabase.storage
+        .from("tracks")
+        .upload(coverPath, meta.coverFile, { contentType: meta.coverFile.type });
+      if (coverErr) throw coverErr;
+      cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
+    }
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from("tracks")
+      .insert({
+        title: meta.title,
+        artist: meta.artist,
+        album: meta.album || null,
+        audio_url,
+        cover_url,
+        duration_seconds: duration,
+        uploaded_by: user.id,
+      })
+      .select("id,title,artist,album,cover_url")
+      .single();
+    if (insertErr) throw insertErr;
+    return inserted as Track;
+  }
+
+  // Derive a clean title from a filename: strip extension, replace separators.
+  function titleFromFilename(name: string): string {
+    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
+  }
+
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!upAudio || !user || !playlist) return;
     setUploading(true);
     try {
-      const duration = await getAudioDuration(upAudio);
-
-      const audioPath = `${user.id}/audio/${Date.now()}-${upAudio.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const { error: audioErr } = await supabase.storage
-        .from("tracks")
-        .upload(audioPath, upAudio, { contentType: upAudio.type });
-      if (audioErr) throw audioErr;
-      const audio_url = supabase.storage.from("tracks").getPublicUrl(audioPath).data.publicUrl;
-
-      let cover_url: string | null = null;
-      if (upCover) {
-        const coverPath = `${user.id}/covers/${Date.now()}-${upCover.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-        const { error: coverErr } = await supabase.storage
-          .from("tracks")
-          .upload(coverPath, upCover, { contentType: upCover.type });
-        if (coverErr) throw coverErr;
-        cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
-      }
-
-      const { data: inserted, error: insertErr } = await supabase
-        .from("tracks")
-        .insert({
-          title: upTitle,
-          artist: upArtist,
-          album: upAlbum || null,
-          audio_url,
-          cover_url,
-          duration_seconds: duration,
-          uploaded_by: user.id,
-        })
-        .select("id,title,artist,album,cover_url")
-        .single();
-      if (insertErr) throw insertErr;
-
-      const newTrack = inserted as Track;
-      // Add to playlist + library list
+      const newTrack = await uploadAudioFile(upAudio, {
+        title: upTitle,
+        artist: upArtist,
+        album: upAlbum,
+        coverFile: upCover,
+      });
       await persistOrder([...items, newTrack]);
       setAllTracks((prev) => [newTrack, ...prev]);
 
-      // Reset form
       setUpTitle("");
       setUpArtist("");
       setUpAlbum("");
@@ -185,6 +205,49 @@ function EditPlaylist() {
       setUploading(false);
     }
   }
+
+  // Drag-and-drop: accept dropped audio files, upload sequentially, append to playlist.
+  async function handleDroppedFiles(fileList: FileList | File[]) {
+    if (!user || !playlist) return;
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name));
+    if (files.length === 0) {
+      toast.error("Drop audio files only");
+      return;
+    }
+
+    const queue = files.map((f) => ({ name: f.name, status: "pending" as const }));
+    setDropQueue(queue);
+
+    const newTracks: Track[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
+      try {
+        const t = await uploadAudioFile(file, {
+          title: titleFromFilename(file.name),
+          artist: "Unknown artist",
+          album: null,
+          coverFile: null,
+        });
+        newTracks.push(t);
+        setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
+      } catch (err: any) {
+        setDropQueue((q) =>
+          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item)),
+        );
+      }
+    }
+
+    if (newTracks.length > 0) {
+      await persistOrder([...items, ...newTracks]);
+      setAllTracks((prev) => [...newTracks, ...prev]);
+      toast.success(`Added ${newTracks.length} track${newTracks.length > 1 ? "s" : ""}`);
+    }
+
+    // Clear queue after a short delay so users see final state
+    setTimeout(() => setDropQueue([]), 2500);
+  }
+
 
 
   async function removeAt(idx: number) {
@@ -218,7 +281,72 @@ function EditPlaylist() {
   const available = allTracks.filter((t) => !inPlaylist.has(t.id));
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
+    <div
+      className="relative mx-auto max-w-6xl px-6 py-16"
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          setIsDragging(true);
+        }
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDragLeave={(e) => {
+        // Only hide if leaving the container itself
+        if (e.currentTarget === e.target) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files?.length) handleDroppedFiles(e.dataTransfer.files);
+      }}
+    >
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm">
+          <div className="border-2 border-dashed border-foreground p-12 text-center">
+            <FileAudio size={40} className="mx-auto text-foreground" />
+            <p className="mt-4 font-display text-2xl">Drop to upload</p>
+            <p className="mt-2 text-xs uppercase tracking-[0.3em] text-muted-foreground">
+              Audio files will be added to this playlist
+            </p>
+          </div>
+        </div>
+      )}
+
+      {dropQueue.length > 0 && (
+        <div className="fixed bottom-28 right-6 z-40 w-80 max-w-[calc(100vw-3rem)] border border-border bg-background shadow-lg">
+          <div className="border-b border-border px-4 py-2 text-xs uppercase tracking-[0.3em] text-muted-foreground">
+            Uploading {dropQueue.filter((q) => q.status === "done").length}/{dropQueue.length}
+          </div>
+          <ul className="max-h-64 divide-y divide-border overflow-y-auto">
+            {dropQueue.map((item, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <FileAudio size={14} className="shrink-0 text-muted-foreground" />
+                <span className="flex-1 truncate">{item.name}</span>
+                <span
+                  className={
+                    item.status === "done"
+                      ? "text-xs text-foreground"
+                      : item.status === "error"
+                        ? "text-xs text-destructive"
+                        : "text-xs text-muted-foreground"
+                  }
+                >
+                  {item.status === "pending" && "…"}
+                  {item.status === "uploading" && "↑"}
+                  {item.status === "done" && "✓"}
+                  {item.status === "error" && "✕"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
         ← {playlist.title}
       </Link>
@@ -226,7 +354,7 @@ function EditPlaylist() {
         <div>
           <h1 className="text-4xl">Edit tracks</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            Add tracks from your library or upload new ones. {busy && "Saving…"}
+            Drag audio files anywhere on this page to add them, or use the form below. {busy && "Saving…"}
           </p>
         </div>
         <button

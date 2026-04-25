@@ -281,7 +281,72 @@ function EditPlaylist() {
   const available = allTracks.filter((t) => !inPlaylist.has(t.id));
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-16">
+    <div
+      className="relative mx-auto max-w-6xl px-6 py-16"
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          setIsDragging(true);
+        }
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDragLeave={(e) => {
+        // Only hide if leaving the container itself
+        if (e.currentTarget === e.target) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (e.dataTransfer.files?.length) handleDroppedFiles(e.dataTransfer.files);
+      }}
+    >
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/85 backdrop-blur-sm">
+          <div className="border-2 border-dashed border-foreground p-12 text-center">
+            <FileAudio size={40} className="mx-auto text-foreground" />
+            <p className="mt-4 font-display text-2xl">Drop to upload</p>
+            <p className="mt-2 text-xs uppercase tracking-[0.3em] text-muted-foreground">
+              Audio files will be added to this playlist
+            </p>
+          </div>
+        </div>
+      )}
+
+      {dropQueue.length > 0 && (
+        <div className="fixed bottom-28 right-6 z-40 w-80 max-w-[calc(100vw-3rem)] border border-border bg-background shadow-lg">
+          <div className="border-b border-border px-4 py-2 text-xs uppercase tracking-[0.3em] text-muted-foreground">
+            Uploading {dropQueue.filter((q) => q.status === "done").length}/{dropQueue.length}
+          </div>
+          <ul className="max-h-64 divide-y divide-border overflow-y-auto">
+            {dropQueue.map((item, i) => (
+              <li key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <FileAudio size={14} className="shrink-0 text-muted-foreground" />
+                <span className="flex-1 truncate">{item.name}</span>
+                <span
+                  className={
+                    item.status === "done"
+                      ? "text-xs text-foreground"
+                      : item.status === "error"
+                        ? "text-xs text-destructive"
+                        : "text-xs text-muted-foreground"
+                  }
+                >
+                  {item.status === "pending" && "…"}
+                  {item.status === "uploading" && "↑"}
+                  {item.status === "done" && "✓"}
+                  {item.status === "error" && "✕"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
         ← {playlist.title}
       </Link>
@@ -289,7 +354,7 @@ function EditPlaylist() {
         <div>
           <h1 className="text-4xl">Edit tracks</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            Add tracks from your library or upload new ones. {busy && "Saving…"}
+            Drag audio files anywhere on this page to add them, or use the form below. {busy && "Saving…"}
           </p>
         </div>
         <button

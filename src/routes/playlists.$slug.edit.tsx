@@ -37,6 +37,10 @@ function EditPlaylist() {
   const [upCover, setUpCover] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Drag-and-drop state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropQueue, setDropQueue] = useState<{ name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]>([]);
+
   useEffect(() => {
     if (!loading && !user) nav({ to: "/auth" });
   }, [user, loading, nav]);

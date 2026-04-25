@@ -58,14 +58,9 @@ function PlaylistsIndex() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : playlists.length === 0 ? (
+      ) : playlists.length === 0 && !isAdmin ? (
         <div className="border border-dashed border-border py-20 text-center">
           <p className="font-display text-2xl text-muted-foreground">No playlists yet.</p>
-          {isAdmin && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Create the first one to start curating.
-            </p>
-          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-3">

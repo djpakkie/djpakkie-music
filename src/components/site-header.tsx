@@ -9,7 +9,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Link to="/" className="flex items-center gap-2">
-          <span className="font-display text-2xl tracking-tight">Sonore</span>
+          <span className="font-display text-2xl tracking-tight">DJ Pakkie Music</span>
           <span className="hidden text-xs uppercase tracking-[0.2em] text-muted-foreground sm:inline">
             · streaming library
           </span>

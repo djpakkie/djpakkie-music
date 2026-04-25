@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, X, ArrowUp, ArrowDown, Upload } from "lucide-react";
+import { Plus, X, ArrowUp, ArrowDown, Upload, FileAudio } from "lucide-react";
 
 export const Route = createFileRoute("/playlists/$slug/edit")({
   component: EditPlaylist,

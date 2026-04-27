@@ -6,6 +6,7 @@ import { PlayerProvider } from "@/lib/player-context";
 import { SiteHeader } from "@/components/site-header";
 import { NowPlayingBar } from "@/components/now-playing-bar";
 import { RetroBackground } from "@/components/retro-background";
+import { RetroProvider } from "@/lib/retro-context";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {

@@ -1,11 +1,17 @@
+import { useRetro } from "@/lib/retro-context";
+
 /**
  * Animated retro background.
  *
- * Sits fixed behind all content. Uses semantic tokens layered with warm
- * retro accent stops (sunset/peach/teal) that drift slowly. Adapts to
- * light/dark via CSS variables defined in styles.css (.retro-bg).
+ * Sits fixed behind all content. Reacts to the user's intensity preference
+ * (off/low/high) from RetroProvider — applied via the `data-retro` attribute
+ * on <html> and consumed by CSS in styles.css.
  */
 export function RetroBackground() {
+  const { intensity } = useRetro();
+
+  if (intensity === "off") return null;
+
   return (
     <div aria-hidden className="retro-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <div className="retro-bg__gradient absolute inset-0" />

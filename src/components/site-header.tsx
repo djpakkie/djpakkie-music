@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
+import { RetroIntensityControl } from "@/components/retro-intensity-control";
 
 export function SiteHeader() {
   const { user, isAdmin } = useAuth();
@@ -14,7 +15,7 @@ export function SiteHeader() {
             · streaming library
           </span>
         </Link>
-        <nav className="flex items-center gap-6 text-sm">
+        <nav className="flex items-center gap-4 text-sm sm:gap-6">
           <Link
             to="/"
             className="text-muted-foreground transition-colors hover:text-foreground"
@@ -53,6 +54,7 @@ export function SiteHeader() {
               Admin
             </Link>
           )}
+          <RetroIntensityControl />
         </nav>
       </div>
     </header>

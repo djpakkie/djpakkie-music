@@ -256,3 +256,21 @@
   }
 }
 
+/* Intensity: low — keep gradient + sun, slow them down, drop grid/scanlines/noise */
+html[data-retro="low"] .retro-bg__grid,
+html[data-retro="low"] .retro-bg__scanlines,
+html[data-retro="low"] .retro-bg__noise {
+  display: none;
+}
+
+html[data-retro="low"] .retro-bg__gradient {
+  animation-duration: 60s;
+  opacity: 0.6;
+}
+
+html[data-retro="low"] .retro-bg__sun {
+  animation-duration: 16s;
+  opacity: 0.35;
+}
+
+

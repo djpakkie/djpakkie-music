@@ -1,5 +1,6 @@
 import { formatTime, usePlayer } from "@/lib/player-context";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export function NowPlayingBar() {
   const { current, isPlaying, toggle, next, prev, progress, duration, seek } = usePlayer();

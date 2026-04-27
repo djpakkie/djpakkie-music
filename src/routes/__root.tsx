@@ -5,6 +5,7 @@ import { AuthProvider } from "@/lib/auth";
 import { PlayerProvider } from "@/lib/player-context";
 import { SiteHeader } from "@/components/site-header";
 import { NowPlayingBar } from "@/components/now-playing-bar";
+import { RetroBackground } from "@/components/retro-background";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -78,7 +79,8 @@ function RootComponent() {
   return (
     <AuthProvider>
       <PlayerProvider>
-        <div className="flex min-h-screen flex-col pb-24">
+        <RetroBackground />
+        <div className="relative flex min-h-screen flex-col pb-24">
           <SiteHeader />
           <main className="flex-1">
             <Outlet />

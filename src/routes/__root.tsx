@@ -80,15 +80,17 @@ function RootComponent() {
   return (
     <AuthProvider>
       <PlayerProvider>
-        <RetroBackground />
-        <div className="relative flex min-h-screen flex-col pb-24">
-          <SiteHeader />
-          <main className="flex-1">
-            <Outlet />
-          </main>
-          <NowPlayingBar />
-          <Toaster />
-        </div>
+        <RetroProvider>
+          <RetroBackground />
+          <div className="relative flex min-h-screen flex-col pb-24">
+            <SiteHeader />
+            <main className="flex-1">
+              <Outlet />
+            </main>
+            <NowPlayingBar />
+            <Toaster />
+          </div>
+        </RetroProvider>
       </PlayerProvider>
     </AuthProvider>
   );

@@ -5,6 +5,7 @@ import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { useAuth } from "@/lib/auth";
 import { Pause, Play, FileAudio } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export const Route = createFileRoute("/playlists/$slug")({
   component: PlaylistDetail,
@@ -380,9 +381,11 @@ function PlaylistDetail() {
                   {t.cover_url ? (
                     <img src={t.cover_url} alt="" className="h-14 w-14 rounded-sm object-cover" />
                   ) : (
-                    <div className="flex h-14 w-14 items-center justify-center rounded-sm bg-accent">
-                      <span className="font-display text-xl text-muted-foreground">♪</span>
-                    </div>
+                    <AnimatedCover
+                      seed={t.id}
+                      label={(t.title?.[0] ?? "♪").toUpperCase()}
+                      className="h-14 w-14 rounded-sm"
+                    />
                   )}
                   <div className="min-w-0">
                     <div className="truncate font-display text-lg">{t.title}</div>

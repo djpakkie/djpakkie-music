@@ -1,5 +1,6 @@
 import { formatTime, usePlayer } from "@/lib/player-context";
 import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export function NowPlayingBar() {
   const { current, isPlaying, toggle, next, prev, progress, duration, seek } = usePlayer();
@@ -17,9 +18,11 @@ export function NowPlayingBar() {
               className="h-12 w-12 flex-shrink-0 rounded-sm object-cover"
             />
           ) : (
-            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-accent">
-              <span className="font-display text-lg text-muted-foreground">♪</span>
-            </div>
+            <AnimatedCover
+              seed={current.id}
+              label={(current.title?.[0] ?? "♪").toUpperCase()}
+              className="h-12 w-12 flex-shrink-0 rounded-sm"
+            />
           )}
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{current.title}</div>

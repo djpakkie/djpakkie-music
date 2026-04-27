@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { Play, Pause } from "lucide-react";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -87,9 +88,11 @@ function Index() {
                       className="h-14 w-14 rounded-sm object-cover"
                     />
                   ) : (
-                    <div className="flex h-14 w-14 items-center justify-center rounded-sm bg-accent">
-                      <span className="font-display text-xl text-muted-foreground">♪</span>
-                    </div>
+                    <AnimatedCover
+                      seed={t.id}
+                      label={(t.title?.[0] ?? "♪").toUpperCase()}
+                      className="h-14 w-14 rounded-sm"
+                    />
                   )}
 
                   <div className="min-w-0">

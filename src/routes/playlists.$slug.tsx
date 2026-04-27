@@ -5,6 +5,7 @@ import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { useAuth } from "@/lib/auth";
 import { Pause, Play, FileAudio } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export const Route = createFileRoute("/playlists/$slug")({
   component: PlaylistDetail,

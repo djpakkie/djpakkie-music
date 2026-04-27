@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { Play, Pause } from "lucide-react";
+import { AnimatedCover } from "@/components/animated-cover";
 
 export const Route = createFileRoute("/")({
   component: Index,

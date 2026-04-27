@@ -15,7 +15,7 @@ export function SiteHeader() {
             · streaming library
           </span>
         </Link>
-        <nav className="flex items-center gap-6 text-sm">
+        <nav className="flex items-center gap-4 text-sm sm:gap-6">
           <Link
             to="/"
             className="text-muted-foreground transition-colors hover:text-foreground"

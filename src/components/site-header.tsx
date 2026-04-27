@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
+import { RetroIntensityControl } from "@/components/retro-intensity-control";
 
 export function SiteHeader() {
   const { user, isAdmin } = useAuth();

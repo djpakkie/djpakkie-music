@@ -54,6 +54,7 @@ export function SiteHeader() {
               Admin
             </Link>
           )}
+          <RetroIntensityControl />
         </nav>
       </div>
     </header>

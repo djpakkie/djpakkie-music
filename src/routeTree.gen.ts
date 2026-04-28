@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
+import { Route as RequestRouteImport } from './routes/request'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PlaylistsIndexRouteImport } from './routes/playlists.index'
@@ -20,6 +21,11 @@ import { Route as PlaylistsSlugEditRouteImport } from './routes/playlists.$slug.
 const UploadRoute = UploadRouteImport.update({
   id: '/upload',
   path: '/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RequestRoute = RequestRouteImport.update({
+  id: '/request',
+  path: '/request',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -56,6 +62,7 @@ const PlaylistsSlugEditRoute = PlaylistsSlugEditRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/request': typeof RequestRoute
   '/upload': typeof UploadRoute
   '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
   '/playlists/new': typeof PlaylistsNewRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/request': typeof RequestRoute
   '/upload': typeof UploadRoute
   '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
   '/playlists/new': typeof PlaylistsNewRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/request': typeof RequestRoute
   '/upload': typeof UploadRoute
   '/playlists/$slug': typeof PlaylistsSlugRouteWithChildren
   '/playlists/new': typeof PlaylistsNewRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/request'
     | '/upload'
     | '/playlists/$slug'
     | '/playlists/new'
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/request'
     | '/upload'
     | '/playlists/$slug'
     | '/playlists/new'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/auth'
+    | '/request'
     | '/upload'
     | '/playlists/$slug'
     | '/playlists/new'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
+  RequestRoute: typeof RequestRoute
   UploadRoute: typeof UploadRoute
   PlaylistsSlugRoute: typeof PlaylistsSlugRouteWithChildren
   PlaylistsNewRoute: typeof PlaylistsNewRoute
@@ -127,6 +140,13 @@ declare module '@tanstack/react-router' {
       path: '/upload'
       fullPath: '/upload'
       preLoaderRoute: typeof UploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/request': {
+      id: '/request'
+      path: '/request'
+      fullPath: '/request'
+      preLoaderRoute: typeof RequestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -189,6 +209,7 @@ const PlaylistsSlugRouteWithChildren = PlaylistsSlugRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
+  RequestRoute: RequestRoute,
   UploadRoute: UploadRoute,
   PlaylistsSlugRoute: PlaylistsSlugRouteWithChildren,
   PlaylistsNewRoute: PlaylistsNewRoute,

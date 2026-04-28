@@ -86,6 +86,45 @@ export type Database = {
         }
         Relationships: []
       }
+      song_requests: {
+        Row: {
+          artist: string
+          created_at: string
+          id: string
+          note: string | null
+          requester_email: string | null
+          requester_name: string | null
+          requester_user_id: string | null
+          status: Database["public"]["Enums"]["request_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          artist: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          requester_email?: string | null
+          requester_name?: string | null
+          requester_user_id?: string | null
+          status?: Database["public"]["Enums"]["request_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          artist?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          requester_email?: string | null
+          requester_name?: string | null
+          requester_user_id?: string | null
+          status?: Database["public"]["Enums"]["request_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tracks: {
         Row: {
           album: string | null
@@ -158,6 +197,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      request_status: "pending" | "fulfilled" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -286,6 +326,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      request_status: ["pending", "fulfilled", "rejected"],
     },
   },
 } as const

@@ -11,9 +11,6 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Link to="/" className="flex items-center gap-2">
           <span className="font-display text-2xl tracking-tight">DJ Pakkie Music</span>
-          <span className="hidden text-xs uppercase tracking-[0.2em] text-muted-foreground sm:inline">
-            · streaming library
-          </span>
         </Link>
         <nav className="flex items-center gap-4 text-sm sm:gap-6">
           <Link

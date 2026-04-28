@@ -57,7 +57,9 @@ function Index() {
         <div className="mb-10 flex items-baseline justify-between">
           <h2 className="text-2xl">Library</h2>
           <span className="text-xs uppercase tracking-widest text-muted-foreground">
-            {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
+            {query
+              ? `${filtered.length} of ${tracks.length}`
+              : `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`}
           </span>
         </div>
 
@@ -70,9 +72,15 @@ function Index() {
               Sign in as admin to upload the first record.
             </p>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="border border-dashed border-border py-20 text-center">
+            <p className="font-display text-2xl text-muted-foreground">
+              No matches for “{query}”.
+            </p>
+          </div>
         ) : (
           <ol className="divide-y divide-border">
-            {tracks.map((t, i) => {
+            {filtered.map((t, i) => {
               const isCurrent = current?.id === t.id;
               return (
                 <li

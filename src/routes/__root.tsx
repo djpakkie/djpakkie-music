@@ -5,6 +5,7 @@ import { AuthProvider } from "@/lib/auth";
 import { PlayerProvider } from "@/lib/player-context";
 import { SiteHeader } from "@/components/site-header";
 import { NowPlayingBar } from "@/components/now-playing-bar";
+import { NowPlayingPreview } from "@/components/now-playing-preview";
 import { RetroBackground } from "@/components/retro-background";
 import { RetroProvider } from "@/lib/retro-context";
 import { Toaster } from "@/components/ui/sonner";
@@ -88,6 +89,7 @@ function RootComponent() {
               <Outlet />
             </main>
             <NowPlayingBar />
+            <NowPlayingPreview />
             <Toaster />
           </div>
         </RetroProvider>

@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { Play, Pause } from "lucide-react";
@@ -13,6 +13,17 @@ function Index() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const { current, isPlaying, playTrack, toggle } = usePlayer();
+  const search = useSearch({ strict: false }) as { q?: string };
+  const query = (search.q ?? "").trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!query) return tracks;
+    return tracks.filter((t) =>
+      [t.title, t.artist, t.album]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(query)),
+    );
+  }, [tracks, query]);
 
   useEffect(() => {
     supabase

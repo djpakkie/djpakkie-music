@@ -22,7 +22,7 @@ export function NowPlayingPreview() {
 
   return (
     <div
-      className="pointer-events-auto fixed bottom-28 left-4 z-50 w-72 overflow-hidden rounded-lg border border-border bg-background/85 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-4 duration-300"
+      className="pointer-events-auto absolute right-6 top-24 z-30 w-80 overflow-hidden rounded-lg border border-border bg-background/60 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-300 sm:w-96"
       role="complementary"
       aria-label="Now playing preview"
     >

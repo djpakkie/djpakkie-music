@@ -88,7 +88,7 @@ function Index() {
                   className="group grid grid-cols-[2.5rem_3.5rem_1fr_auto] items-center gap-4 py-4 transition-colors hover:bg-accent/40"
                 >
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="relative flex h-8 w-8 items-center justify-center text-sm tabular-nums text-muted-foreground"
                     aria-label={isCurrent && isPlaying ? "Pause" : "Play"}
                   >
@@ -101,7 +101,7 @@ function Index() {
                   </button>
 
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="block h-14 w-14 cursor-pointer"
                     aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
                   >
@@ -121,7 +121,7 @@ function Index() {
                   </button>
 
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="min-w-0 cursor-pointer text-left"
                     aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
                   >

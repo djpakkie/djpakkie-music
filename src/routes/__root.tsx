@@ -4,6 +4,7 @@ import appCss from "../styles.css?url";
 import { AuthProvider } from "@/lib/auth";
 import { PlayerProvider } from "@/lib/player-context";
 import { SiteHeader } from "@/components/site-header";
+import { SearchBar } from "@/components/search-bar";
 import { NowPlayingBar } from "@/components/now-playing-bar";
 import { NowPlayingPreview } from "@/components/now-playing-preview";
 import { RetroBackground } from "@/components/retro-background";
@@ -85,6 +86,7 @@ function RootComponent() {
           <RetroBackground />
           <div className="relative flex min-h-screen flex-col pb-24">
             <SiteHeader />
+            <SearchBar />
             <main className="flex-1">
               <Outlet />
             </main>

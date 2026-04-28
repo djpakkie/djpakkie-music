@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatTime, usePlayer, type Track } from "@/lib/player-context";
 import { Play, Pause } from "lucide-react";
@@ -13,6 +13,17 @@ function Index() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState(true);
   const { current, isPlaying, playTrack, toggle } = usePlayer();
+  const search = useSearch({ strict: false }) as { q?: string };
+  const query = (search.q ?? "").trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    if (!query) return tracks;
+    return tracks.filter((t) =>
+      [t.title, t.artist, t.album]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(query)),
+    );
+  }, [tracks, query]);
 
   useEffect(() => {
     supabase
@@ -46,7 +57,9 @@ function Index() {
         <div className="mb-10 flex items-baseline justify-between">
           <h2 className="text-2xl">Library</h2>
           <span className="text-xs uppercase tracking-widest text-muted-foreground">
-            {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
+            {query
+              ? `${filtered.length} of ${tracks.length}`
+              : `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`}
           </span>
         </div>
 
@@ -59,9 +72,15 @@ function Index() {
               Sign in as admin to upload the first record.
             </p>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="border border-dashed border-border py-20 text-center">
+            <p className="font-display text-2xl text-muted-foreground">
+              No matches for “{query}”.
+            </p>
+          </div>
         ) : (
           <ol className="divide-y divide-border">
-            {tracks.map((t, i) => {
+            {filtered.map((t, i) => {
               const isCurrent = current?.id === t.id;
               return (
                 <li
@@ -69,7 +88,7 @@ function Index() {
                   className="group grid grid-cols-[2.5rem_3.5rem_1fr_auto] items-center gap-4 py-4 transition-colors hover:bg-accent/40"
                 >
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="relative flex h-8 w-8 items-center justify-center text-sm tabular-nums text-muted-foreground"
                     aria-label={isCurrent && isPlaying ? "Pause" : "Play"}
                   >
@@ -82,7 +101,7 @@ function Index() {
                   </button>
 
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="block h-14 w-14 cursor-pointer"
                     aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
                   >
@@ -102,7 +121,7 @@ function Index() {
                   </button>
 
                   <button
-                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, filtered))}
                     className="min-w-0 cursor-pointer text-left"
                     aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
                   >

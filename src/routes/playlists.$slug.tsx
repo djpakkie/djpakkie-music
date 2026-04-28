@@ -378,22 +378,32 @@ function PlaylistDetail() {
                       {isCurrent && isPlaying ? <Pause size={16} /> : <Play size={16} />}
                     </span>
                   </button>
-                  {t.cover_url ? (
-                    <img src={t.cover_url} alt="" className="h-14 w-14 rounded-sm object-cover" />
-                  ) : (
-                    <AnimatedCover
-                      seed={t.id}
-                      label={(t.title?.[0] ?? "♪").toUpperCase()}
-                      className="h-14 w-14 rounded-sm"
-                    />
-                  )}
-                  <div className="min-w-0">
+                  <button
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    className="block h-14 w-14 cursor-pointer"
+                    aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
+                  >
+                    {t.cover_url ? (
+                      <img src={t.cover_url} alt="" className="h-14 w-14 rounded-sm object-cover" />
+                    ) : (
+                      <AnimatedCover
+                        seed={t.id}
+                        label={(t.title?.[0] ?? "♪").toUpperCase()}
+                        className="h-14 w-14 rounded-sm"
+                      />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => (isCurrent ? toggle() : playTrack(t, tracks))}
+                    className="min-w-0 cursor-pointer text-left"
+                    aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
+                  >
                     <div className="truncate font-display text-lg">{t.title}</div>
                     <div className="truncate text-sm text-muted-foreground">
                       {t.artist}
                       {t.album && <span className="opacity-60"> — {t.album}</span>}
                     </div>
-                  </div>
+                  </button>
                   <div className="text-sm tabular-nums text-muted-foreground">
                     {t.duration_seconds ? formatTime(t.duration_seconds) : "—"}
                   </div>

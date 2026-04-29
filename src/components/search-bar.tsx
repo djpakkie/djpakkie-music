@@ -1,5 +1,5 @@
-import { Search, X } from "lucide-react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Search, X, Mic2 } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { usePlayer, type Track } from "@/lib/player-context";

@@ -1,5 +1,5 @@
-import { Search, X } from "lucide-react";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Search, X, Mic2 } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { usePlayer, type Track } from "@/lib/player-context";
@@ -60,7 +60,14 @@ export function SearchBar() {
 
   return (
     <div className="sticky top-16 z-20 border-b border-border bg-background/70 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl justify-center px-6 py-3">
+      <div className="mx-auto flex max-w-6xl items-center justify-center gap-3 px-4 py-3 sm:px-6">
+        <Link
+          to="/request"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background/60 px-3 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-accent/50 sm:text-sm"
+        >
+          <Mic2 size={14} aria-hidden />
+          Request
+        </Link>
         <div className="relative w-full max-w-xl">
           <div className="flex items-center gap-3 rounded-full border border-border bg-background/60 px-4 py-2 shadow-sm focus-within:border-foreground/40">
             <Search size={16} className="text-muted-foreground" aria-hidden />

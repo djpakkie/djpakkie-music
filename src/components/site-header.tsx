@@ -27,13 +27,6 @@ export function SiteHeader() {
           >
             Playlists
           </Link>
-          <Link
-            to="/request"
-            className="text-muted-foreground transition-colors hover:text-foreground"
-            activeProps={{ className: "text-foreground" }}
-          >
-            Request
-          </Link>
           {isAdmin && (
             <>
               <Link

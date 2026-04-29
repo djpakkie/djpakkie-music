@@ -91,7 +91,7 @@ function RequestPage() {
       <h1 className="mt-3 text-5xl">Request a song</h1>
       <p className="mt-4 text-sm text-muted-foreground">
         Got a track you'd love to hear in the library? Drop it here and DJ
-        Pakkie will take a listen.
+        Pakkie will have a listen.
       </p>
 
       {submitted && (

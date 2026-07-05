@@ -1,0 +1,1457 @@
+From c47be5130c1d71af169e393fd3be7f35af5c4ba2 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Sun, 5 Jul 2026 10:00:11 +0000
+Subject: [PATCH] Improve performance, player features, and upload UX
+
+- Share a single cached track fetch (React Query) across the homepage
+  and search bar instead of two independent network requests, with
+  proper error surfacing via toast and a skeleton loading state.
+- Invalidate the tracks cache after a successful upload so new tracks
+  appear immediately without a manual refresh.
+- Player: add volume control + mute, shuffle, repeat (off/all/one),
+  and keyboard shortcuts (space, arrow keys, N/P). Playback state
+  (track, position, volume, shuffle, repeat) now persists across
+  page reloads via localStorage.
+- Upload: validate file size client-side (100MB audio / 8MB cover),
+  show a cover art preview, and show real upload progress bars via
+  a direct XHR call to the Storage REST endpoint (the supabase-js
+  client doesn't expose progress events).
+- Clean up remaining  types across the codebase in favor of
+  proper types / instanceof Error checks.
+---
+ src/components/animated-cover.tsx        |  20 +-
+ src/components/now-playing-bar.tsx       |  90 ++++++++-
+ src/components/now-playing-preview.tsx   |   8 +-
+ src/components/search-bar.tsx            |  17 +-
+ src/lib/player-context.tsx               | 224 ++++++++++++++++++++++-
+ src/lib/query-client.tsx                 |  21 +++
+ src/lib/upload-with-progress.ts          |  47 +++++
+ src/lib/use-player-keyboard-shortcuts.ts |  54 ++++++
+ src/lib/use-tracks.ts                    |  26 +++
+ src/routes/__root.tsx                    |  49 +++--
+ src/routes/auth.tsx                      |   4 +-
+ src/routes/index.tsx                     |  57 +++---
+ src/routes/playlists.$slug.edit.tsx      |  47 +++--
+ src/routes/playlists.$slug.tsx           |  40 ++--
+ src/routes/playlists.new.tsx             |   4 +-
+ src/routes/upload.tsx                    | 137 +++++++++++---
+ 16 files changed, 703 insertions(+), 142 deletions(-)
+ create mode 100644 src/lib/query-client.tsx
+ create mode 100644 src/lib/upload-with-progress.ts
+ create mode 100644 src/lib/use-player-keyboard-shortcuts.ts
+ create mode 100644 src/lib/use-tracks.ts
+
+diff --git a/src/components/animated-cover.tsx b/src/components/animated-cover.tsx
+index a7a5c7d..a305393 100644
+--- a/src/components/animated-cover.tsx
++++ b/src/components/animated-cover.tsx
+@@ -20,7 +20,7 @@ function hash(seed: string): number {
+ 
+ function pick(seed: string, salt: string, min: number, max: number): number {
+   const h = hash(seed + ":" + salt);
+-  return min + (h % 10_000) / 10_000 * (max - min);
++  return min + ((h % 10_000) / 10_000) * (max - min);
+ }
+ 
+ type Props = {
+@@ -30,8 +30,10 @@ type Props = {
+   className?: string;
+ };
+ 
++type CoverStyle = React.CSSProperties & Record<`--cover-${string}`, string>;
++
+ export function AnimatedCover({ seed, label, className }: Props) {
+-  const style = useMemo(() => {
++  const style = useMemo<CoverStyle>(() => {
+     const hue1 = Math.floor(pick(seed, "h1", 0, 360));
+     const hue2 = Math.floor((hue1 + pick(seed, "h2", 60, 200)) % 360);
+     const angle = Math.floor(pick(seed, "ang", 0, 360));
+@@ -44,19 +46,17 @@ export function AnimatedCover({ seed, label, className }: Props) {
+     const delay = "-" + pick(seed, "del", 0, 10).toFixed(2) + "s";
+     return {
+       background: `linear-gradient(${angle}deg, oklch(0.45 0.18 ${hue1}), oklch(0.32 0.15 ${hue2}))`,
+-      ["--cover-orb-a" as any]: `radial-gradient(circle at ${ax}% ${ay}%, oklch(0.85 0.18 ${hue1} / 0.85), transparent 55%)`,
+-      ["--cover-orb-b" as any]: `radial-gradient(circle at ${bx}% ${by}%, oklch(0.78 0.2 ${hue2} / 0.75), transparent 60%)`,
+-      ["--cover-dur" as any]: dur,
+-      ["--cover-delay" as any]: delay,
+-    } as React.CSSProperties;
++      "--cover-orb-a": `radial-gradient(circle at ${ax}% ${ay}%, oklch(0.85 0.18 ${hue1} / 0.85), transparent 55%)`,
++      "--cover-orb-b": `radial-gradient(circle at ${bx}% ${by}%, oklch(0.78 0.2 ${hue2} / 0.75), transparent 60%)`,
++      "--cover-dur": dur,
++      "--cover-delay": delay,
++    };
+   }, [seed]);
+ 
+   return (
+     <div
+       aria-hidden
+-      className={
+-        "animated-cover relative overflow-hidden " + (className ?? "h-14 w-14 rounded-sm")
+-      }
++      className={"animated-cover relative overflow-hidden " + (className ?? "h-14 w-14 rounded-sm")}
+       style={style}
+     >
+       <div className="animated-cover__orb animated-cover__orb--a absolute inset-0" />
+diff --git a/src/components/now-playing-bar.tsx b/src/components/now-playing-bar.tsx
+index 348fe6c..997d27d 100644
+--- a/src/components/now-playing-bar.tsx
++++ b/src/components/now-playing-bar.tsx
+@@ -1,15 +1,50 @@
+ import { formatTime, usePlayer } from "@/lib/player-context";
+-import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
++import { usePlayerKeyboardShortcuts } from "@/lib/use-player-keyboard-shortcuts";
++import {
++  Pause,
++  Play,
++  SkipBack,
++  SkipForward,
++  Shuffle,
++  Repeat,
++  Repeat1,
++  Volume2,
++  Volume1,
++  VolumeX,
++} from "lucide-react";
+ import { AnimatedCover } from "@/components/animated-cover";
+ 
+ export function NowPlayingBar() {
+-  const { current, isPlaying, toggle, next, prev, progress, duration, seek } = usePlayer();
++  const {
++    current,
++    isPlaying,
++    toggle,
++    next,
++    prev,
++    progress,
++    duration,
++    seek,
++    volume,
++    muted,
++    setVolume,
++    toggleMute,
++    shuffle,
++    toggleShuffle,
++    repeat,
++    cycleRepeat,
++  } = usePlayer();
++
++  // Active whenever a track is loaded, regardless of which page you're on.
++  usePlayerKeyboardShortcuts();
+ 
+   if (!current) return null;
+ 
++  const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
++  const RepeatIcon = repeat === "one" ? Repeat1 : Repeat;
++
+   return (
+     <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur-md">
+-      <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
++      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:gap-4 sm:px-6">
+         <div className="flex min-w-0 flex-1 items-center gap-3">
+           {current.cover_url ? (
+             <img
+@@ -31,7 +66,19 @@ export function NowPlayingBar() {
+         </div>
+ 
+         <div className="flex flex-[2] flex-col items-center gap-1.5">
+-          <div className="flex items-center gap-4">
++          <div className="flex items-center gap-3 sm:gap-4">
++            <button
++              onClick={toggleShuffle}
++              className={
++                "hidden transition-colors sm:block " +
++                (shuffle ? "text-foreground" : "text-muted-foreground hover:text-foreground")
++              }
++              aria-label="Toggle shuffle"
++              aria-pressed={shuffle}
++              title="Shuffle"
++            >
++              <Shuffle size={16} />
++            </button>
+             <button
+               onClick={prev}
+               className="text-muted-foreground transition-colors hover:text-foreground"
+@@ -53,6 +100,20 @@ export function NowPlayingBar() {
+             >
+               <SkipForward size={18} />
+             </button>
++            <button
++              onClick={cycleRepeat}
++              className={
++                "hidden transition-colors sm:block " +
++                (repeat !== "off"
++                  ? "text-foreground"
++                  : "text-muted-foreground hover:text-foreground")
++              }
++              aria-label="Toggle repeat"
++              aria-pressed={repeat !== "off"}
++              title={`Repeat: ${repeat}`}
++            >
++              <RepeatIcon size={16} />
++            </button>
+           </div>
+           <div className="flex w-full items-center gap-2 text-[10px] tabular-nums text-muted-foreground">
+             <span>{formatTime(progress)}</span>
+@@ -63,12 +124,31 @@ export function NowPlayingBar() {
+               value={progress}
+               onChange={(e) => seek(Number(e.target.value))}
+               className="h-1 flex-1 cursor-pointer accent-foreground"
++              aria-label="Seek"
+             />
+             <span>{formatTime(duration)}</span>
+           </div>
+         </div>
+ 
+-        <div className="hidden flex-1 sm:block" />
++        <div className="hidden flex-1 items-center justify-end gap-2 sm:flex">
++          <button
++            onClick={toggleMute}
++            className="text-muted-foreground transition-colors hover:text-foreground"
++            aria-label={muted ? "Unmute" : "Mute"}
++          >
++            <VolumeIcon size={18} />
++          </button>
++          <input
++            type="range"
++            min={0}
++            max={1}
++            step={0.01}
++            value={muted ? 0 : volume}
++            onChange={(e) => setVolume(Number(e.target.value))}
++            className="h-1 w-24 cursor-pointer accent-foreground"
++            aria-label="Volume"
++          />
++        </div>
+       </div>
+     </div>
+   );
+diff --git a/src/components/now-playing-preview.tsx b/src/components/now-playing-preview.tsx
+index ca843ec..c1c41a8 100644
+--- a/src/components/now-playing-preview.tsx
++++ b/src/components/now-playing-preview.tsx
+@@ -14,7 +14,7 @@ export function NowPlayingPreview() {
+   // Re-show the preview whenever a new track starts.
+   useEffect(() => {
+     if (current) setDismissed(false);
+-  }, [current?.id]);
++  }, [current]);
+ 
+   if (!current || dismissed) return null;
+ 
+@@ -37,11 +37,7 @@ export function NowPlayingPreview() {
+       <div className="flex gap-3 p-3">
+         <div className="relative h-16 w-16 flex-shrink-0">
+           {current.cover_url ? (
+-            <img
+-              src={current.cover_url}
+-              alt=""
+-              className="h-16 w-16 rounded-sm object-cover"
+-            />
++            <img src={current.cover_url} alt="" className="h-16 w-16 rounded-sm object-cover" />
+           ) : (
+             <AnimatedCover
+               seed={current.id}
+diff --git a/src/components/search-bar.tsx b/src/components/search-bar.tsx
+index 13b60b2..b9d6c5f 100644
+--- a/src/components/search-bar.tsx
++++ b/src/components/search-bar.tsx
+@@ -1,8 +1,8 @@
+ import { Search, X, Mic2 } from "lucide-react";
+ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+ import { useEffect, useMemo, useState } from "react";
+-import { supabase } from "@/integrations/supabase/client";
+-import { usePlayer, type Track } from "@/lib/player-context";
++import { usePlayer } from "@/lib/player-context";
++import { useTracks } from "@/lib/use-tracks";
+ import { AnimatedCover } from "@/components/animated-cover";
+ 
+ export function SearchBar() {
+@@ -11,22 +11,15 @@ export function SearchBar() {
+   const pathname = useRouterState({ select: (s) => s.location.pathname });
+   const [value, setValue] = useState(search.q ?? "");
+   const [focused, setFocused] = useState(false);
+-  const [tracks, setTracks] = useState<Track[]>([]);
++  // Shares the same cache entry as the homepage's useTracks() call, so this
++  // doesn't trigger a second network request.
++  const { data: tracks = [] } = useTracks();
+   const { playTrack } = usePlayer();
+ 
+   useEffect(() => {
+     setValue(search.q ?? "");
+   }, [search.q]);
+ 
+-  // Load tracks once for live preview suggestions.
+-  useEffect(() => {
+-    supabase
+-      .from("tracks")
+-      .select("id,title,artist,album,cover_url,audio_url,duration_seconds")
+-      .order("created_at", { ascending: false })
+-      .then(({ data }) => setTracks((data as Track[]) ?? []));
+-  }, []);
+-
+   // Debounced URL sync (only when on the library page so we don't redirect away).
+   useEffect(() => {
+     const t = setTimeout(() => {
+diff --git a/src/lib/player-context.tsx b/src/lib/player-context.tsx
+index 0d969f6..91d0db0 100644
+--- a/src/lib/player-context.tsx
++++ b/src/lib/player-context.tsx
+@@ -1,4 +1,12 @@
+-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
++import {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++} from "react";
+ 
+ export type Track = {
+   id: string;
+@@ -10,21 +18,52 @@ export type Track = {
+   duration_seconds: number | null;
+ };
+ 
++export type RepeatMode = "off" | "all" | "one";
++
++type PersistedState = {
++  track?: Track;
++  progress?: number;
++  volume?: number;
++  muted?: boolean;
++  shuffle?: boolean;
++  repeat?: RepeatMode;
++};
++
++const STORAGE_KEY = "djpakkie:player";
++
+ type PlayerCtx = {
+   current: Track | null;
+   queue: Track[];
+   isPlaying: boolean;
+   progress: number;
+   duration: number;
++  volume: number;
++  muted: boolean;
++  shuffle: boolean;
++  repeat: RepeatMode;
+   playTrack: (track: Track, queue?: Track[]) => void;
+   toggle: () => void;
+   next: () => void;
+   prev: () => void;
+   seek: (s: number) => void;
++  setVolume: (v: number) => void;
++  toggleMute: () => void;
++  toggleShuffle: () => void;
++  cycleRepeat: () => void;
+ };
+ 
+ const Ctx = createContext<PlayerCtx | null>(null);
+ 
++function loadPersisted(): PersistedState | null {
++  if (typeof window === "undefined") return null;
++  try {
++    const raw = localStorage.getItem(STORAGE_KEY);
++    return raw ? (JSON.parse(raw) as PersistedState) : null;
++  } catch {
++    return null;
++  }
++}
++
+ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+   const audioRef = useRef<HTMLAudioElement | null>(null);
+   const [current, setCurrent] = useState<Track | null>(null);
+@@ -32,14 +71,51 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+   const [isPlaying, setIsPlaying] = useState(false);
+   const [progress, setProgress] = useState(0);
+   const [duration, setDuration] = useState(0);
++  const [volume, setVolumeState] = useState(1);
++  const [muted, setMuted] = useState(false);
++  const [shuffle, setShuffle] = useState(false);
++  const [repeat, setRepeat] = useState<RepeatMode>("off");
++  const preMuteVolumeRef = useRef(1);
+ 
+   useEffect(() => {
+     if (typeof window === "undefined") return;
+     const a = new Audio();
+     audioRef.current = a;
++
++    // Restore whatever was playing / configured on the last visit.
++    const saved = loadPersisted();
++    if (saved) {
++      if (typeof saved.volume === "number") {
++        a.volume = saved.volume;
++        setVolumeState(saved.volume);
++        preMuteVolumeRef.current = saved.volume || 1;
++      }
++      if (saved.muted) {
++        a.volume = 0;
++        setMuted(true);
++      }
++      if (saved.shuffle) setShuffle(true);
++      if (saved.repeat) setRepeat(saved.repeat);
++      if (saved.track) {
++        setCurrent(saved.track);
++        a.src = saved.track.audio_url;
++        if (saved.progress) {
++          a.currentTime = saved.progress;
++          setProgress(saved.progress);
++        }
++      }
++    }
++
+     const onTime = () => setProgress(a.currentTime);
+     const onMeta = () => setDuration(a.duration || 0);
+-    const onEnd = () => nextRef.current?.();
++    const onEnd = () => {
++      if (repeatRef.current === "one") {
++        a.currentTime = 0;
++        a.play();
++        return;
++      }
++      nextRef.current?.();
++    };
+     a.addEventListener("timeupdate", onTime);
+     a.addEventListener("loadedmetadata", onMeta);
+     a.addEventListener("ended", onEnd);
+@@ -57,7 +133,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+     setCurrent(track);
+     if (q) setQueue(q);
+     a.src = track.audio_url;
+-    a.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
++    a.currentTime = 0;
++    setProgress(0);
++    a.play()
++      .then(() => setIsPlaying(true))
++      .catch(() => setIsPlaying(false));
+   }, []);
+ 
+   const toggle = useCallback(() => {
+@@ -73,11 +153,32 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+   }, [current]);
+ 
+   const next = useCallback(() => {
+-    if (!current || queue.length === 0) return;
++    if (!current) return;
++    if (repeat === "one") {
++      playTrack(current, queue);
++      return;
++    }
++    if (queue.length === 0) return;
++
++    if (shuffle) {
++      const others = queue.filter((t) => t.id !== current.id);
++      if (others.length > 0) {
++        const pick = others[Math.floor(Math.random() * others.length)];
++        playTrack(pick, queue);
++      } else if (repeat === "all") {
++        playTrack(current, queue);
++      }
++      return;
++    }
++
+     const idx = queue.findIndex((t) => t.id === current.id);
+     const nxt = queue[idx + 1];
+-    if (nxt) playTrack(nxt, queue);
+-  }, [current, queue, playTrack]);
++    if (nxt) {
++      playTrack(nxt, queue);
++    } else if (repeat === "all" && queue[0]) {
++      playTrack(queue[0], queue);
++    }
++  }, [current, queue, playTrack, repeat, shuffle]);
+ 
+   const prev = useCallback(() => {
+     if (!current || queue.length === 0) return;
+@@ -91,6 +192,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+     nextRef.current = next;
+   }, [next]);
+ 
++  const repeatRef = useRef(repeat);
++  useEffect(() => {
++    repeatRef.current = repeat;
++  }, [repeat]);
++
+   const seek = useCallback((s: number) => {
+     const a = audioRef.current;
+     if (!a) return;
+@@ -98,9 +204,111 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
+     setProgress(s);
+   }, []);
+ 
++  const setVolume = useCallback((v: number) => {
++    const clamped = Math.min(1, Math.max(0, v));
++    const a = audioRef.current;
++    if (a) a.volume = clamped;
++    setVolumeState(clamped);
++    if (clamped > 0) {
++      preMuteVolumeRef.current = clamped;
++      setMuted(false);
++    } else {
++      setMuted(true);
++    }
++  }, []);
++
++  const toggleMute = useCallback(() => {
++    const a = audioRef.current;
++    if (!a) return;
++    if (muted) {
++      const restore = preMuteVolumeRef.current || 1;
++      a.volume = restore;
++      setVolumeState(restore);
++      setMuted(false);
++    } else {
++      preMuteVolumeRef.current = volume || 1;
++      a.volume = 0;
++      setMuted(true);
++    }
++  }, [muted, volume]);
++
++  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
++
++  const cycleRepeat = useCallback(() => {
++    setRepeat((r) => (r === "off" ? "all" : r === "all" ? "one" : "off"));
++  }, []);
++
++  // Persist playback + preferences so a reload doesn't lose your place.
++  const snapshotRef = useRef<PersistedState>({});
++  useEffect(() => {
++    snapshotRef.current = {
++      track: current ?? undefined,
++      progress,
++      volume,
++      muted,
++      shuffle,
++      repeat,
++    };
++  }, [current, progress, volume, muted, shuffle, repeat]);
++
++  useEffect(() => {
++    const save = () => {
++      try {
++        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshotRef.current));
++      } catch {
++        // ignore quota / privacy-mode errors
++      }
++    };
++    window.addEventListener("beforeunload", save);
++    const interval = setInterval(save, 5000);
++    return () => {
++      window.removeEventListener("beforeunload", save);
++      clearInterval(interval);
++      save();
++    };
++  }, []);
++
+   const value = useMemo<PlayerCtx>(
+-    () => ({ current, queue, isPlaying, progress, duration, playTrack, toggle, next, prev, seek }),
+-    [current, queue, isPlaying, progress, duration, playTrack, toggle, next, prev, seek],
++    () => ({
++      current,
++      queue,
++      isPlaying,
++      progress,
++      duration,
++      volume,
++      muted,
++      shuffle,
++      repeat,
++      playTrack,
++      toggle,
++      next,
++      prev,
++      seek,
++      setVolume,
++      toggleMute,
++      toggleShuffle,
++      cycleRepeat,
++    }),
++    [
++      current,
++      queue,
++      isPlaying,
++      progress,
++      duration,
++      volume,
++      muted,
++      shuffle,
++      repeat,
++      playTrack,
++      toggle,
++      next,
++      prev,
++      seek,
++      setVolume,
++      toggleMute,
++      toggleShuffle,
++      cycleRepeat,
++    ],
+   );
+ 
+   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+diff --git a/src/lib/query-client.tsx b/src/lib/query-client.tsx
+new file mode 100644
+index 0000000..39818d0
+--- /dev/null
++++ b/src/lib/query-client.tsx
+@@ -0,0 +1,21 @@
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import { useState } from "react";
++
++export function AppQueryProvider({ children }: { children: React.ReactNode }) {
++  // useState (not a module-level singleton) so each SSR request / test gets its
++  // own client, while the client still only gets created once per mount.
++  const [client] = useState(
++    () =>
++      new QueryClient({
++        defaultOptions: {
++          queries: {
++            retry: 1,
++            refetchOnWindowFocus: false,
++            staleTime: 30_000,
++          },
++        },
++      }),
++  );
++
++  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
++}
+diff --git a/src/lib/upload-with-progress.ts b/src/lib/upload-with-progress.ts
+new file mode 100644
+index 0000000..8703d6b
+--- /dev/null
++++ b/src/lib/upload-with-progress.ts
+@@ -0,0 +1,47 @@
++/**
++ * The supabase-js storage client doesn't expose upload progress, so for files
++ * that can take a while (audio in particular) we hit the Storage REST
++ * endpoint directly via XHR, which does give us progress events.
++ */
++export function uploadWithProgress(
++  bucket: string,
++  path: string,
++  file: File,
++  accessToken: string,
++  onProgress?: (pct: number) => void,
++): Promise<void> {
++  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
++  const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
++
++  return new Promise((resolve, reject) => {
++    const xhr = new XMLHttpRequest();
++    xhr.open("POST", `${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`);
++    xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
++    xhr.setRequestHeader("apikey", SUPABASE_KEY);
++    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
++    xhr.setRequestHeader("x-upsert", "false");
++
++    xhr.upload.onprogress = (e) => {
++      if (e.lengthComputable && onProgress) {
++        onProgress(Math.round((e.loaded / e.total) * 100));
++      }
++    };
++    xhr.onload = () => {
++      if (xhr.status >= 200 && xhr.status < 300) {
++        onProgress?.(100);
++        resolve();
++      } else {
++        let message = `Upload failed (${xhr.status})`;
++        try {
++          const body = JSON.parse(xhr.responseText);
++          if (body?.message) message = body.message;
++        } catch {
++          // ignore parse failure, use default message
++        }
++        reject(new Error(message));
++      }
++    };
++    xhr.onerror = () => reject(new Error("Network error during upload"));
++    xhr.send(file);
++  });
++}
+diff --git a/src/lib/use-player-keyboard-shortcuts.ts b/src/lib/use-player-keyboard-shortcuts.ts
+new file mode 100644
+index 0000000..77d41ac
+--- /dev/null
++++ b/src/lib/use-player-keyboard-shortcuts.ts
+@@ -0,0 +1,54 @@
++import { useEffect } from "react";
++import { usePlayer } from "@/lib/player-context";
++
++function isTypingTarget(el: EventTarget | null) {
++  if (!(el instanceof HTMLElement)) return false;
++  const tag = el.tagName;
++  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
++}
++
++/**
++ * Space = play/pause, ←/→ = seek 5s, ↑/↓ = volume, N/P = next/prev.
++ * Ignored while typing in a form field.
++ */
++export function usePlayerKeyboardShortcuts() {
++  const { current, toggle, next, prev, seek, progress, duration, volume, setVolume } = usePlayer();
++
++  useEffect(() => {
++    function onKeyDown(e: KeyboardEvent) {
++      if (!current || isTypingTarget(e.target)) return;
++
++      switch (e.code) {
++        case "Space":
++          e.preventDefault();
++          toggle();
++          break;
++        case "ArrowRight":
++          e.preventDefault();
++          seek(Math.min(duration || progress, progress + 5));
++          break;
++        case "ArrowLeft":
++          e.preventDefault();
++          seek(Math.max(0, progress - 5));
++          break;
++        case "ArrowUp":
++          e.preventDefault();
++          setVolume(volume + 0.05);
++          break;
++        case "ArrowDown":
++          e.preventDefault();
++          setVolume(volume - 0.05);
++          break;
++        case "KeyN":
++          next();
++          break;
++        case "KeyP":
++          prev();
++          break;
++      }
++    }
++
++    window.addEventListener("keydown", onKeyDown);
++    return () => window.removeEventListener("keydown", onKeyDown);
++  }, [current, toggle, next, prev, seek, progress, duration, volume, setVolume]);
++}
+diff --git a/src/lib/use-tracks.ts b/src/lib/use-tracks.ts
+new file mode 100644
+index 0000000..09341eb
+--- /dev/null
++++ b/src/lib/use-tracks.ts
+@@ -0,0 +1,26 @@
++import { useQuery } from "@tanstack/react-query";
++import { supabase } from "@/integrations/supabase/client";
++import type { Track } from "@/lib/player-context";
++
++export const tracksQueryKey = ["tracks"] as const;
++
++async function fetchTracks(): Promise<Track[]> {
++  const { data, error } = await supabase
++    .from("tracks")
++    .select("id,title,artist,album,cover_url,audio_url,duration_seconds")
++    .order("created_at", { ascending: false });
++  if (error) throw error;
++  return (data as Track[]) ?? [];
++}
++
++/**
++ * Shared, cached track list. Any component that calls this hook shares the
++ * same query cache entry, so mounting the homepage and the search bar at the
++ * same time results in a single network request instead of two.
++ */
++export function useTracks() {
++  return useQuery({
++    queryKey: tracksQueryKey,
++    queryFn: fetchTracks,
++  });
++}
+diff --git a/src/routes/__root.tsx b/src/routes/__root.tsx
+index bb1646a..77703e6 100644
+--- a/src/routes/__root.tsx
++++ b/src/routes/__root.tsx
+@@ -2,6 +2,7 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
+ 
+ import appCss from "../styles.css?url";
+ import { AuthProvider } from "@/lib/auth";
++import { AppQueryProvider } from "@/lib/query-client";
+ import { PlayerProvider } from "@/lib/player-context";
+ import { SiteHeader } from "@/components/site-header";
+ import { SearchBar } from "@/components/search-bar";
+@@ -45,8 +46,16 @@ export const Route = createRootRoute({
+       { property: "og:type", content: "website" },
+       { name: "twitter:title", content: "DJ Pakkie" },
+       { name: "twitter:description", content: "A personal streaming library. Press play." },
+-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png" },
+-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png" },
++      {
++        property: "og:image",
++        content:
++          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png",
++      },
++      {
++        name: "twitter:image",
++        content:
++          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png",
++      },
+       { name: "twitter:card", content: "summary_large_image" },
+     ],
+     links: [
+@@ -80,22 +89,24 @@ function RootShell({ children }: { children: React.ReactNode }) {
+ 
+ function RootComponent() {
+   return (
+-    <AuthProvider>
+-      <PlayerProvider>
+-        <RetroProvider>
+-          <RetroBackground />
+-          <div className="relative flex min-h-screen flex-col pb-24">
+-            <SiteHeader />
+-            <SearchBar />
+-            <main className="flex-1">
+-              <Outlet />
+-            </main>
+-            <NowPlayingBar />
+-            <NowPlayingPreview />
+-            <Toaster />
+-          </div>
+-        </RetroProvider>
+-      </PlayerProvider>
+-    </AuthProvider>
++    <AppQueryProvider>
++      <AuthProvider>
++        <PlayerProvider>
++          <RetroProvider>
++            <RetroBackground />
++            <div className="relative flex min-h-screen flex-col pb-24">
++              <SiteHeader />
++              <SearchBar />
++              <main className="flex-1">
++                <Outlet />
++              </main>
++              <NowPlayingBar />
++              <NowPlayingPreview />
++              <Toaster />
++            </div>
++          </RetroProvider>
++        </PlayerProvider>
++      </AuthProvider>
++    </AppQueryProvider>
+   );
+ }
+diff --git a/src/routes/auth.tsx b/src/routes/auth.tsx
+index d11efbd..3893258 100644
+--- a/src/routes/auth.tsx
++++ b/src/routes/auth.tsx
+@@ -39,8 +39,8 @@ function AuthPage() {
+         toast.success("Welcome back.");
+         nav({ to: "/" });
+       }
+-    } catch (err: any) {
+-      toast.error(err.message ?? "Something went wrong");
++    } catch (err: unknown) {
++      toast.error(err instanceof Error ? err.message : "Something went wrong");
+     } finally {
+       setBusy(false);
+     }
+diff --git a/src/routes/index.tsx b/src/routes/index.tsx
+index 11ee18b..f85f685 100644
+--- a/src/routes/index.tsx
++++ b/src/routes/index.tsx
+@@ -1,17 +1,18 @@
+ import { createFileRoute, useSearch } from "@tanstack/react-router";
+-import { useEffect, useMemo, useState } from "react";
+-import { supabase } from "@/integrations/supabase/client";
+-import { formatTime, usePlayer, type Track } from "@/lib/player-context";
++import { useEffect, useMemo } from "react";
++import { formatTime, usePlayer } from "@/lib/player-context";
++import { useTracks } from "@/lib/use-tracks";
+ import { Play, Pause } from "lucide-react";
+ import { AnimatedCover } from "@/components/animated-cover";
++import { Skeleton } from "@/components/ui/skeleton";
++import { toast } from "sonner";
+ 
+ export const Route = createFileRoute("/")({
+   component: Index,
+ });
+ 
+ function Index() {
+-  const [tracks, setTracks] = useState<Track[]>([]);
+-  const [loading, setLoading] = useState(true);
++  const { data: tracks = [], isLoading: loading, error } = useTracks();
+   const { current, isPlaying, playTrack, toggle } = usePlayer();
+   const search = useSearch({ strict: false }) as { q?: string };
+   const query = (search.q ?? "").trim().toLowerCase();
+@@ -26,15 +27,8 @@ function Index() {
+   }, [tracks, query]);
+ 
+   useEffect(() => {
+-    supabase
+-      .from("tracks")
+-      .select("id,title,artist,album,cover_url,audio_url,duration_seconds")
+-      .order("created_at", { ascending: false })
+-      .then(({ data }) => {
+-        setTracks((data as Track[]) ?? []);
+-        setLoading(false);
+-      });
+-  }, []);
++    if (error) toast.error(error instanceof Error ? error.message : "Failed to load the library.");
++  }, [error]);
+ 
+   return (
+     <div className="mx-auto max-w-6xl px-6">
+@@ -47,8 +41,8 @@ function Index() {
+           A quiet room <em className="italic text-muted-foreground">for sound.</em>
+         </h1>
+         <p className="mt-6 max-w-xl text-base text-muted-foreground">
+-          A personal library, hand-picked and streamed. No algorithms, no playlists — just
+-          records, in the order they were placed on the shelf.
++          A personal library, hand-picked and streamed. No algorithms, no playlists — just records,
++          in the order they were placed on the shelf.
+         </p>
+       </section>
+ 
+@@ -64,7 +58,22 @@ function Index() {
+         </div>
+ 
+         {loading ? (
+-          <p className="text-sm text-muted-foreground">Loading…</p>
++          <ol className="divide-y divide-border">
++            {Array.from({ length: 6 }).map((_, i) => (
++              <li
++                key={i}
++                className="grid grid-cols-[2.5rem_3.5rem_1fr_auto] items-center gap-4 py-4"
++              >
++                <Skeleton className="h-4 w-4" />
++                <Skeleton className="h-14 w-14 rounded-sm" />
++                <div className="min-w-0 space-y-2">
++                  <Skeleton className="h-4 w-1/3" />
++                  <Skeleton className="h-3 w-1/4" />
++                </div>
++                <Skeleton className="h-3 w-10" />
++              </li>
++            ))}
++          </ol>
+         ) : tracks.length === 0 ? (
+           <div className="border border-dashed border-border py-20 text-center">
+             <p className="font-display text-2xl text-muted-foreground">The shelf is empty.</p>
+@@ -74,9 +83,7 @@ function Index() {
+           </div>
+         ) : filtered.length === 0 ? (
+           <div className="border border-dashed border-border py-20 text-center">
+-            <p className="font-display text-2xl text-muted-foreground">
+-              No matches for “{query}”.
+-            </p>
++            <p className="font-display text-2xl text-muted-foreground">No matches for “{query}”.</p>
+           </div>
+         ) : (
+           <ol className="divide-y divide-border">
+@@ -92,9 +99,7 @@ function Index() {
+                     className="relative flex h-8 w-8 items-center justify-center text-sm tabular-nums text-muted-foreground"
+                     aria-label={isCurrent && isPlaying ? "Pause" : "Play"}
+                   >
+-                    <span className="group-hover:opacity-0">
+-                      {String(i + 1).padStart(2, "0")}
+-                    </span>
++                    <span className="group-hover:opacity-0">{String(i + 1).padStart(2, "0")}</span>
+                     <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+                       {isCurrent && isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                     </span>
+@@ -106,11 +111,7 @@ function Index() {
+                     aria-label={isCurrent && isPlaying ? "Pause" : `Play ${t.title}`}
+                   >
+                     {t.cover_url ? (
+-                      <img
+-                        src={t.cover_url}
+-                        alt=""
+-                        className="h-14 w-14 rounded-sm object-cover"
+-                      />
++                      <img src={t.cover_url} alt="" className="h-14 w-14 rounded-sm object-cover" />
+                     ) : (
+                       <AnimatedCover
+                         seed={t.id}
+diff --git a/src/routes/playlists.$slug.edit.tsx b/src/routes/playlists.$slug.edit.tsx
+index c1f2960..61bbbec 100644
+--- a/src/routes/playlists.$slug.edit.tsx
++++ b/src/routes/playlists.$slug.edit.tsx
+@@ -39,7 +39,9 @@ function EditPlaylist() {
+ 
+   // Drag-and-drop state
+   const [isDragging, setIsDragging] = useState(false);
+-  const [dropQueue, setDropQueue] = useState<{ name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]>([]);
++  const [dropQueue, setDropQueue] = useState<
++    { name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]
++  >([]);
+ 
+   useEffect(() => {
+     if (!loading && !user) nav({ to: "/auth" });
+@@ -66,7 +68,7 @@ function EditPlaylist() {
+         .order("created_at", { ascending: false }),
+     ]);
+ 
+-    setItems(((pt as any[]) ?? []).map((r) => r.tracks as Track).filter(Boolean));
++    setItems(((pt as { tracks: Track }[]) ?? []).map((r) => r.tracks).filter(Boolean));
+     setAllTracks((tracks as Track[]) ?? []);
+   }
+ 
+@@ -175,7 +177,12 @@ function EditPlaylist() {
+ 
+   // Derive a clean title from a filename: strip extension, replace separators.
+   function titleFromFilename(name: string): string {
+-    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
++    return (
++      name
++        .replace(/\.[^.]+$/, "")
++        .replace(/[_-]+/g, " ")
++        .trim() || name
++    );
+   }
+ 
+   async function handleUpload(e: React.FormEvent) {
+@@ -199,8 +206,8 @@ function EditPlaylist() {
+       setUpCover(null);
+       setShowUpload(false);
+       toast.success("Uploaded and added to playlist");
+-    } catch (err: any) {
+-      toast.error(err.message ?? "Upload failed");
++    } catch (err) {
++      toast.error(err instanceof Error ? err.message : "Upload failed");
+     } finally {
+       setUploading(false);
+     }
+@@ -209,7 +216,9 @@ function EditPlaylist() {
+   // Drag-and-drop: accept dropped audio files, upload sequentially, append to playlist.
+   async function handleDroppedFiles(fileList: FileList | File[]) {
+     if (!user || !playlist) return;
+-    const files = Array.from(fileList).filter((f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name));
++    const files = Array.from(fileList).filter(
++      (f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name),
++    );
+     if (files.length === 0) {
+       toast.error("Drop audio files only");
+       return;
+@@ -221,7 +230,9 @@ function EditPlaylist() {
+     const newTracks: Track[] = [];
+     for (let i = 0; i < files.length; i++) {
+       const file = files[i];
+-      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
++      setDropQueue((q) =>
++        q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)),
++      );
+       try {
+         const t = await uploadAudioFile(file, {
+           title: titleFromFilename(file.name),
+@@ -231,9 +242,10 @@ function EditPlaylist() {
+         });
+         newTracks.push(t);
+         setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
+-      } catch (err: any) {
++      } catch (err) {
++        const message = err instanceof Error ? err.message : "Failed";
+         setDropQueue((q) =>
+-          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item)),
++          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: message } : item)),
+         );
+       }
+     }
+@@ -248,8 +260,6 @@ function EditPlaylist() {
+     setTimeout(() => setDropQueue([]), 2500);
+   }
+ 
+-
+-
+   async function removeAt(idx: number) {
+     const next = items.filter((_, i) => i !== idx);
+     await persistOrder(next);
+@@ -347,14 +357,19 @@ function EditPlaylist() {
+         </div>
+       )}
+ 
+-      <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
++      <Link
++        to="/playlists/$slug"
++        params={{ slug: playlist.slug }}
++        className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
++      >
+         ← {playlist.title}
+       </Link>
+       <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
+         <div>
+           <h1 className="text-4xl">Edit tracks</h1>
+           <p className="mt-3 text-sm text-muted-foreground">
+-            Drag audio files anywhere on this page to add them, or use the form below. {busy && "Saving…"}
++            Drag audio files anywhere on this page to add them, or use the form below.{" "}
++            {busy && "Saving…"}
+           </p>
+         </div>
+         <button
+@@ -441,7 +456,6 @@ function EditPlaylist() {
+         </form>
+       )}
+ 
+-
+       <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-2">
+         {/* In playlist */}
+         <section>
+@@ -455,7 +469,10 @@ function EditPlaylist() {
+           ) : (
+             <ol className="divide-y divide-border">
+               {items.map((t, i) => (
+-                <li key={t.id} className="grid grid-cols-[1.5rem_3rem_1fr_auto] items-center gap-3 py-3">
++                <li
++                  key={t.id}
++                  className="grid grid-cols-[1.5rem_3rem_1fr_auto] items-center gap-3 py-3"
++                >
+                   <span className="text-xs tabular-nums text-muted-foreground">
+                     {String(i + 1).padStart(2, "0")}
+                   </span>
+diff --git a/src/routes/playlists.$slug.tsx b/src/routes/playlists.$slug.tsx
+index 78abf55..0b974a7 100644
+--- a/src/routes/playlists.$slug.tsx
++++ b/src/routes/playlists.$slug.tsx
+@@ -54,9 +54,7 @@ function PlaylistDetail() {
+       .eq("playlist_id", pl.id)
+       .order("position", { ascending: true });
+ 
+-    const ts = ((items as any[]) ?? [])
+-      .map((r) => r.tracks as Track)
+-      .filter(Boolean);
++    const ts = ((items as { tracks: Track }[]) ?? []).map((r) => r.tracks).filter(Boolean);
+     setTracks(ts);
+     setLoading(false);
+   }
+@@ -110,7 +108,12 @@ function PlaylistDetail() {
+   }
+ 
+   function titleFromFilename(name: string): string {
+-    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
++    return (
++      name
++        .replace(/\.[^.]+$/, "")
++        .replace(/[_-]+/g, " ")
++        .trim() || name
++    );
+   }
+ 
+   async function uploadAudioFile(audioFile: File): Promise<Track> {
+@@ -173,16 +176,17 @@ function PlaylistDetail() {
+     const newTracks: Track[] = [];
+     for (let i = 0; i < files.length; i++) {
+       const file = files[i];
+-      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
++      setDropQueue((q) =>
++        q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)),
++      );
+       try {
+         const t = await uploadAudioFile(file);
+         newTracks.push(t);
+         setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
+-      } catch (err: any) {
++      } catch (err) {
++        const message = err instanceof Error ? err.message : "Failed";
+         setDropQueue((q) =>
+-          q.map((item, idx) =>
+-            idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item,
+-          ),
++          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: message } : item)),
+         );
+       }
+     }
+@@ -191,8 +195,8 @@ function PlaylistDetail() {
+       try {
+         await appendTracksToPlaylist(newTracks);
+         toast.success(`Added ${newTracks.length} track${newTracks.length > 1 ? "s" : ""}`);
+-      } catch (err: any) {
+-        toast.error(err.message ?? "Could not link tracks to playlist");
++      } catch (err) {
++        toast.error(err instanceof Error ? err.message : "Could not link tracks to playlist");
+       }
+     }
+ 
+@@ -207,7 +211,10 @@ function PlaylistDetail() {
+     return (
+       <div className="mx-auto max-w-md px-6 py-20 text-center">
+         <h1 className="text-3xl">Not found</h1>
+-        <Link to="/playlists" className="mt-6 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline">
++        <Link
++          to="/playlists"
++          className="mt-6 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline"
++        >
+           ← All playlists
+         </Link>
+       </div>
+@@ -285,7 +292,10 @@ function PlaylistDetail() {
+         </div>
+       )}
+ 
+-      <Link to="/playlists" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
++      <Link
++        to="/playlists"
++        className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
++      >
+         ← Playlists
+       </Link>
+ 
+@@ -304,7 +314,9 @@ function PlaylistDetail() {
+             <p className="mt-4 max-w-xl text-base text-muted-foreground">{playlist.description}</p>
+           )}
+           <div className="mt-6 flex flex-wrap items-center gap-4 text-xs uppercase tracking-widest text-muted-foreground">
+-            <span>{tracks.length} {tracks.length === 1 ? "track" : "tracks"}</span>
++            <span>
++              {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
++            </span>
+             {totalSeconds > 0 && <span>· {formatTime(totalSeconds)}</span>}
+           </div>
+ 
+diff --git a/src/routes/playlists.new.tsx b/src/routes/playlists.new.tsx
+index 614390f..d2dc35d 100644
+--- a/src/routes/playlists.new.tsx
++++ b/src/routes/playlists.new.tsx
+@@ -73,8 +73,8 @@ function NewPlaylist() {
+ 
+       toast.success("Playlist created. Now add tracks.");
+       nav({ to: "/playlists/$slug/edit", params: { slug: data.slug } });
+-    } catch (err: any) {
+-      toast.error(err.message ?? "Failed to create playlist");
++    } catch (err: unknown) {
++      toast.error(err instanceof Error ? err.message : "Failed to create playlist");
+     } finally {
+       setBusy(false);
+     }
+diff --git a/src/routes/upload.tsx b/src/routes/upload.tsx
+index 876835b..be38efe 100644
+--- a/src/routes/upload.tsx
++++ b/src/routes/upload.tsx
+@@ -1,27 +1,73 @@
+ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+-import { useEffect, useState } from "react";
++import { useEffect, useMemo, useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
+ import { supabase } from "@/integrations/supabase/client";
+ import { useAuth } from "@/lib/auth";
++import { tracksQueryKey } from "@/lib/use-tracks";
++import { uploadWithProgress } from "@/lib/upload-with-progress";
+ import { toast } from "sonner";
+ 
+ export const Route = createFileRoute("/upload")({
+   component: UploadPage,
+ });
+ 
++const MAX_AUDIO_BYTES = 100 * 1024 * 1024; // 100MB — generous for lossless files
++const MAX_COVER_BYTES = 8 * 1024 * 1024; // 8MB
++
++function formatBytes(bytes: number) {
++  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
++  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
++}
++
+ function UploadPage() {
+-  const { user, isAdmin, loading } = useAuth();
++  const { user, session, isAdmin, loading } = useAuth();
+   const nav = useNavigate();
++  const queryClient = useQueryClient();
+   const [title, setTitle] = useState("");
+   const [artist, setArtist] = useState("");
+   const [album, setAlbum] = useState("");
+   const [audioFile, setAudioFile] = useState<File | null>(null);
+   const [coverFile, setCoverFile] = useState<File | null>(null);
+   const [busy, setBusy] = useState(false);
++  const [audioProgress, setAudioProgress] = useState(0);
++  const [coverProgress, setCoverProgress] = useState(0);
++
++  const coverPreviewUrl = useMemo(
++    () => (coverFile ? URL.createObjectURL(coverFile) : null),
++    [coverFile],
++  );
++  useEffect(() => {
++    return () => {
++      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
++    };
++  }, [coverPreviewUrl]);
+ 
+   useEffect(() => {
+     if (!loading && !user) nav({ to: "/auth" });
+   }, [user, loading, nav]);
+ 
++  function handleAudioChange(file: File | null) {
++    if (file && file.size > MAX_AUDIO_BYTES) {
++      toast.error(
++        `Audio file is too large (${formatBytes(file.size)}). Max is ${formatBytes(MAX_AUDIO_BYTES)}.`,
++      );
++      return;
++    }
++    setAudioFile(file);
++    setAudioProgress(0);
++  }
++
++  function handleCoverChange(file: File | null) {
++    if (file && file.size > MAX_COVER_BYTES) {
++      toast.error(
++        `Cover image is too large (${formatBytes(file.size)}). Max is ${formatBytes(MAX_COVER_BYTES)}.`,
++      );
++      return;
++    }
++    setCoverFile(file);
++    setCoverProgress(0);
++  }
++
+   async function getAudioDuration(file: File): Promise<number | null> {
+     return new Promise((resolve) => {
+       const url = URL.createObjectURL(file);
+@@ -41,25 +87,22 @@ function UploadPage() {
+ 
+   async function handleSubmit(e: React.FormEvent) {
+     e.preventDefault();
+-    if (!audioFile || !user) return;
++    if (!audioFile || !user || !session) return;
+     setBusy(true);
++    setAudioProgress(0);
++    setCoverProgress(0);
+     try {
+       const duration = await getAudioDuration(audioFile);
++      const accessToken = session.access_token;
+ 
+       const audioPath = `${user.id}/audio/${Date.now()}-${audioFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+-      const { error: audioErr } = await supabase.storage
+-        .from("tracks")
+-        .upload(audioPath, audioFile, { contentType: audioFile.type });
+-      if (audioErr) throw audioErr;
++      await uploadWithProgress("tracks", audioPath, audioFile, accessToken, setAudioProgress);
+       const { data: audioPub } = supabase.storage.from("tracks").getPublicUrl(audioPath);
+ 
+       let cover_url: string | null = null;
+       if (coverFile) {
+         const coverPath = `${user.id}/covers/${Date.now()}-${coverFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+-        const { error: coverErr } = await supabase.storage
+-          .from("tracks")
+-          .upload(coverPath, coverFile, { contentType: coverFile.type });
+-        if (coverErr) throw coverErr;
++        await uploadWithProgress("tracks", coverPath, coverFile, accessToken, setCoverProgress);
+         cover_url = supabase.storage.from("tracks").getPublicUrl(coverPath).data.publicUrl;
+       }
+ 
+@@ -74,10 +117,13 @@ function UploadPage() {
+       });
+       if (insertErr) throw insertErr;
+ 
++      // So the homepage/search bar show the new track without a manual refresh.
++      await queryClient.invalidateQueries({ queryKey: tracksQueryKey });
++
+       toast.success("Track added to library.");
+       nav({ to: "/" });
+-    } catch (err: any) {
+-      toast.error(err.message ?? "Upload failed");
++    } catch (err) {
++      toast.error(err instanceof Error ? err.message : "Upload failed");
+     } finally {
+       setBusy(false);
+     }
+@@ -90,12 +136,18 @@ function UploadPage() {
+       <div className="mx-auto max-w-md px-6 py-20">
+         <h1 className="text-3xl">Admin only</h1>
+         <p className="mt-4 text-sm text-muted-foreground">
+-          Your account is signed in but doesn't have the <code className="rounded bg-accent px-1">admin</code> role.
++          Your account is signed in but doesn't have the{" "}
++          <code className="rounded bg-accent px-1">admin</code> role.
+         </p>
+         <p className="mt-3 text-sm text-muted-foreground">
+-          Open Cloud → Database → <code className="rounded bg-accent px-1">user_roles</code> and insert a row with your user id and role <code className="rounded bg-accent px-1">admin</code>.
++          Open Cloud → Database → <code className="rounded bg-accent px-1">user_roles</code> and
++          insert a row with your user id and role{" "}
++          <code className="rounded bg-accent px-1">admin</code>.
+         </p>
+-        <Link to="/" className="mt-8 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline">
++        <Link
++          to="/"
++          className="mt-8 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline"
++        >
+           ← Back
+         </Link>
+       </div>
+@@ -104,12 +156,16 @@ function UploadPage() {
+ 
+   return (
+     <div className="mx-auto max-w-2xl px-6 py-16">
+-      <Link to="/" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
++      <Link
++        to="/"
++        className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
++      >
+         ← Back
+       </Link>
+       <h1 className="mt-6 text-4xl">New track</h1>
+       <p className="mt-3 text-sm text-muted-foreground">
+-        Add a record to the shelf. Audio files only (mp3, wav, flac, m4a).
++        Add a record to the shelf. Audio files only (mp3, wav, flac, m4a), up to{" "}
++        {formatBytes(MAX_AUDIO_BYTES)}.
+       </p>
+ 
+       <form onSubmit={handleSubmit} className="mt-10 space-y-6">
+@@ -141,17 +197,31 @@ function UploadPage() {
+             type="file"
+             accept="audio/*"
+             required
+-            onChange={(e) => setAudioFile(e.target.files?.[0] ?? null)}
++            onChange={(e) => handleAudioChange(e.target.files?.[0] ?? null)}
+             className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-transparent file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+           />
++          {audioFile && (
++            <p className="mt-1.5 text-xs text-muted-foreground">
++              {audioFile.name} · {formatBytes(audioFile.size)}
++            </p>
++          )}
++          {busy && audioFile && <ProgressBar value={audioProgress} label="Uploading audio" />}
+         </Field>
+         <Field label="Cover art (optional)">
+           <input
+             type="file"
+             accept="image/*"
+-            onChange={(e) => setCoverFile(e.target.files?.[0] ?? null)}
++            onChange={(e) => handleCoverChange(e.target.files?.[0] ?? null)}
+             className="block w-full text-sm file:mr-4 file:border file:border-border file:bg-transparent file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest hover:file:bg-accent"
+           />
++          {coverPreviewUrl && (
++            <img
++              src={coverPreviewUrl}
++              alt="Cover preview"
++              className="mt-2 h-24 w-24 rounded-sm border border-border object-cover"
++            />
++          )}
++          {busy && coverFile && <ProgressBar value={coverProgress} label="Uploading cover" />}
+         </Field>
+ 
+         <button
+@@ -166,7 +236,32 @@ function UploadPage() {
+   );
+ }
+ 
+-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
++function ProgressBar({ value, label }: { value: number; label: string }) {
++  return (
++    <div className="mt-2">
++      <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground">
++        <span>{label}</span>
++        <span className="tabular-nums">{value}%</span>
++      </div>
++      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-accent">
++        <div
++          className="h-full bg-foreground transition-[width] duration-150"
++          style={{ width: `${value}%` }}
++        />
++      </div>
++    </div>
++  );
++}
++
++function Field({
++  label,
++  required,
++  children,
++}: {
++  label: string;
++  required?: boolean;
++  children: React.ReactNode;
++}) {
+   return (
+     <div>
+       <label className="mb-2 block text-xs uppercase tracking-widest text-muted-foreground">
+-- 
+2.43.0
+

@@ -73,8 +73,8 @@ function NewPlaylist() {
 
       toast.success("Playlist created. Now add tracks.");
       nav({ to: "/playlists/$slug/edit", params: { slug: data.slug } });
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to create playlist");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to create playlist");
     } finally {
       setBusy(false);
     }

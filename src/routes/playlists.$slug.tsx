@@ -54,9 +54,7 @@ function PlaylistDetail() {
       .eq("playlist_id", pl.id)
       .order("position", { ascending: true });
 
-    const ts = ((items as any[]) ?? [])
-      .map((r) => r.tracks as Track)
-      .filter(Boolean);
+    const ts = ((items as { tracks: Track }[]) ?? []).map((r) => r.tracks).filter(Boolean);
     setTracks(ts);
     setLoading(false);
   }
@@ -110,7 +108,12 @@ function PlaylistDetail() {
   }
 
   function titleFromFilename(name: string): string {
-    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
+    return (
+      name
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim() || name
+    );
   }
 
   async function uploadAudioFile(audioFile: File): Promise<Track> {
@@ -173,16 +176,17 @@ function PlaylistDetail() {
     const newTracks: Track[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
+      setDropQueue((q) =>
+        q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)),
+      );
       try {
         const t = await uploadAudioFile(file);
         newTracks.push(t);
         setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
-      } catch (err: any) {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed";
         setDropQueue((q) =>
-          q.map((item, idx) =>
-            idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item,
-          ),
+          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: message } : item)),
         );
       }
     }
@@ -191,8 +195,8 @@ function PlaylistDetail() {
       try {
         await appendTracksToPlaylist(newTracks);
         toast.success(`Added ${newTracks.length} track${newTracks.length > 1 ? "s" : ""}`);
-      } catch (err: any) {
-        toast.error(err.message ?? "Could not link tracks to playlist");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Could not link tracks to playlist");
       }
     }
 
@@ -207,7 +211,10 @@ function PlaylistDetail() {
     return (
       <div className="mx-auto max-w-md px-6 py-20 text-center">
         <h1 className="text-3xl">Not found</h1>
-        <Link to="/playlists" className="mt-6 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline">
+        <Link
+          to="/playlists"
+          className="mt-6 inline-block text-xs uppercase tracking-widest underline-offset-4 hover:underline"
+        >
           ← All playlists
         </Link>
       </div>
@@ -285,7 +292,10 @@ function PlaylistDetail() {
         </div>
       )}
 
-      <Link to="/playlists" className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
+      <Link
+        to="/playlists"
+        className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
+      >
         ← Playlists
       </Link>
 
@@ -304,7 +314,9 @@ function PlaylistDetail() {
             <p className="mt-4 max-w-xl text-base text-muted-foreground">{playlist.description}</p>
           )}
           <div className="mt-6 flex flex-wrap items-center gap-4 text-xs uppercase tracking-widest text-muted-foreground">
-            <span>{tracks.length} {tracks.length === 1 ? "track" : "tracks"}</span>
+            <span>
+              {tracks.length} {tracks.length === 1 ? "track" : "tracks"}
+            </span>
             {totalSeconds > 0 && <span>· {formatTime(totalSeconds)}</span>}
           </div>
 

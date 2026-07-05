@@ -39,7 +39,9 @@ function EditPlaylist() {
 
   // Drag-and-drop state
   const [isDragging, setIsDragging] = useState(false);
-  const [dropQueue, setDropQueue] = useState<{ name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]>([]);
+  const [dropQueue, setDropQueue] = useState<
+    { name: string; status: "pending" | "uploading" | "done" | "error"; error?: string }[]
+  >([]);
 
   useEffect(() => {
     if (!loading && !user) nav({ to: "/auth" });
@@ -66,7 +68,7 @@ function EditPlaylist() {
         .order("created_at", { ascending: false }),
     ]);
 
-    setItems(((pt as any[]) ?? []).map((r) => r.tracks as Track).filter(Boolean));
+    setItems(((pt as { tracks: Track }[]) ?? []).map((r) => r.tracks).filter(Boolean));
     setAllTracks((tracks as Track[]) ?? []);
   }
 
@@ -175,7 +177,12 @@ function EditPlaylist() {
 
   // Derive a clean title from a filename: strip extension, replace separators.
   function titleFromFilename(name: string): string {
-    return name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || name;
+    return (
+      name
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim() || name
+    );
   }
 
   async function handleUpload(e: React.FormEvent) {
@@ -199,8 +206,8 @@ function EditPlaylist() {
       setUpCover(null);
       setShowUpload(false);
       toast.success("Uploaded and added to playlist");
-    } catch (err: any) {
-      toast.error(err.message ?? "Upload failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -209,7 +216,9 @@ function EditPlaylist() {
   // Drag-and-drop: accept dropped audio files, upload sequentially, append to playlist.
   async function handleDroppedFiles(fileList: FileList | File[]) {
     if (!user || !playlist) return;
-    const files = Array.from(fileList).filter((f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name));
+    const files = Array.from(fileList).filter(
+      (f) => f.type.startsWith("audio/") || /\.(mp3|wav|flac|m4a|ogg|aac)$/i.test(f.name),
+    );
     if (files.length === 0) {
       toast.error("Drop audio files only");
       return;
@@ -221,7 +230,9 @@ function EditPlaylist() {
     const newTracks: Track[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)));
+      setDropQueue((q) =>
+        q.map((item, idx) => (idx === i ? { ...item, status: "uploading" } : item)),
+      );
       try {
         const t = await uploadAudioFile(file, {
           title: titleFromFilename(file.name),
@@ -231,9 +242,10 @@ function EditPlaylist() {
         });
         newTracks.push(t);
         setDropQueue((q) => q.map((item, idx) => (idx === i ? { ...item, status: "done" } : item)));
-      } catch (err: any) {
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed";
         setDropQueue((q) =>
-          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: err.message ?? "Failed" } : item)),
+          q.map((item, idx) => (idx === i ? { ...item, status: "error", error: message } : item)),
         );
       }
     }
@@ -247,8 +259,6 @@ function EditPlaylist() {
     // Clear queue after a short delay so users see final state
     setTimeout(() => setDropQueue([]), 2500);
   }
-
-
 
   async function removeAt(idx: number) {
     const next = items.filter((_, i) => i !== idx);
@@ -347,14 +357,19 @@ function EditPlaylist() {
         </div>
       )}
 
-      <Link to="/playlists/$slug" params={{ slug: playlist.slug }} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
+      <Link
+        to="/playlists/$slug"
+        params={{ slug: playlist.slug }}
+        className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
+      >
         ← {playlist.title}
       </Link>
       <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl">Edit tracks</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            Drag audio files anywhere on this page to add them, or use the form below. {busy && "Saving…"}
+            Drag audio files anywhere on this page to add them, or use the form below.{" "}
+            {busy && "Saving…"}
           </p>
         </div>
         <button
@@ -441,7 +456,6 @@ function EditPlaylist() {
         </form>
       )}
 
-
       <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-2">
         {/* In playlist */}
         <section>
@@ -455,7 +469,10 @@ function EditPlaylist() {
           ) : (
             <ol className="divide-y divide-border">
               {items.map((t, i) => (
-                <li key={t.id} className="grid grid-cols-[1.5rem_3rem_1fr_auto] items-center gap-3 py-3">
+                <li
+                  key={t.id}
+                  className="grid grid-cols-[1.5rem_3rem_1fr_auto] items-center gap-3 py-3"
+                >
                   <span className="text-xs tabular-nums text-muted-foreground">
                     {String(i + 1).padStart(2, "0")}
                   </span>

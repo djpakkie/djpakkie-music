@@ -20,7 +20,7 @@ function hash(seed: string): number {
 
 function pick(seed: string, salt: string, min: number, max: number): number {
   const h = hash(seed + ":" + salt);
-  return min + (h % 10_000) / 10_000 * (max - min);
+  return min + ((h % 10_000) / 10_000) * (max - min);
 }
 
 type Props = {
@@ -30,8 +30,10 @@ type Props = {
   className?: string;
 };
 
+type CoverStyle = React.CSSProperties & Record<`--cover-${string}`, string>;
+
 export function AnimatedCover({ seed, label, className }: Props) {
-  const style = useMemo(() => {
+  const style = useMemo<CoverStyle>(() => {
     const hue1 = Math.floor(pick(seed, "h1", 0, 360));
     const hue2 = Math.floor((hue1 + pick(seed, "h2", 60, 200)) % 360);
     const angle = Math.floor(pick(seed, "ang", 0, 360));
@@ -44,19 +46,17 @@ export function AnimatedCover({ seed, label, className }: Props) {
     const delay = "-" + pick(seed, "del", 0, 10).toFixed(2) + "s";
     return {
       background: `linear-gradient(${angle}deg, oklch(0.45 0.18 ${hue1}), oklch(0.32 0.15 ${hue2}))`,
-      ["--cover-orb-a" as any]: `radial-gradient(circle at ${ax}% ${ay}%, oklch(0.85 0.18 ${hue1} / 0.85), transparent 55%)`,
-      ["--cover-orb-b" as any]: `radial-gradient(circle at ${bx}% ${by}%, oklch(0.78 0.2 ${hue2} / 0.75), transparent 60%)`,
-      ["--cover-dur" as any]: dur,
-      ["--cover-delay" as any]: delay,
-    } as React.CSSProperties;
+      "--cover-orb-a": `radial-gradient(circle at ${ax}% ${ay}%, oklch(0.85 0.18 ${hue1} / 0.85), transparent 55%)`,
+      "--cover-orb-b": `radial-gradient(circle at ${bx}% ${by}%, oklch(0.78 0.2 ${hue2} / 0.75), transparent 60%)`,
+      "--cover-dur": dur,
+      "--cover-delay": delay,
+    };
   }, [seed]);
 
   return (
     <div
       aria-hidden
-      className={
-        "animated-cover relative overflow-hidden " + (className ?? "h-14 w-14 rounded-sm")
-      }
+      className={"animated-cover relative overflow-hidden " + (className ?? "h-14 w-14 rounded-sm")}
       style={style}
     >
       <div className="animated-cover__orb animated-cover__orb--a absolute inset-0" />

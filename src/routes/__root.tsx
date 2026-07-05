@@ -2,6 +2,7 @@ import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/r
 
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/lib/auth";
+import { AppQueryProvider } from "@/lib/query-client";
 import { PlayerProvider } from "@/lib/player-context";
 import { SiteHeader } from "@/components/site-header";
 import { SearchBar } from "@/components/search-bar";
@@ -45,8 +46,16 @@ export const Route = createRootRoute({
       { property: "og:type", content: "website" },
       { name: "twitter:title", content: "DJ Pakkie" },
       { name: "twitter:description", content: "A personal streaming library. Press play." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png" },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/fd82c0e1-5e15-47f8-8b5a-cf569e41e03b/id-preview-42f291f9--f4dbf892-6971-4ef5-aa65-d313780a0a27.lovable.app-1777051642785.png",
+      },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
@@ -80,22 +89,24 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   return (
-    <AuthProvider>
-      <PlayerProvider>
-        <RetroProvider>
-          <RetroBackground />
-          <div className="relative flex min-h-screen flex-col pb-24">
-            <SiteHeader />
-            <SearchBar />
-            <main className="flex-1">
-              <Outlet />
-            </main>
-            <NowPlayingBar />
-            <NowPlayingPreview />
-            <Toaster />
-          </div>
-        </RetroProvider>
-      </PlayerProvider>
-    </AuthProvider>
+    <AppQueryProvider>
+      <AuthProvider>
+        <PlayerProvider>
+          <RetroProvider>
+            <RetroBackground />
+            <div className="relative flex min-h-screen flex-col pb-24">
+              <SiteHeader />
+              <SearchBar />
+              <main className="flex-1">
+                <Outlet />
+              </main>
+              <NowPlayingBar />
+              <NowPlayingPreview />
+              <Toaster />
+            </div>
+          </RetroProvider>
+        </PlayerProvider>
+      </AuthProvider>
+    </AppQueryProvider>
   );
 }

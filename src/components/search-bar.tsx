@@ -1,8 +1,8 @@
 import { Search, X, Mic2 } from "lucide-react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { usePlayer, type Track } from "@/lib/player-context";
+import { usePlayer } from "@/lib/player-context";
+import { useTracks } from "@/lib/use-tracks";
 import { AnimatedCover } from "@/components/animated-cover";
 
 export function SearchBar() {
@@ -11,21 +11,14 @@ export function SearchBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [value, setValue] = useState(search.q ?? "");
   const [focused, setFocused] = useState(false);
-  const [tracks, setTracks] = useState<Track[]>([]);
+  // Shares the same cache entry as the homepage's useTracks() call, so this
+  // doesn't trigger a second network request.
+  const { data: tracks = [] } = useTracks();
   const { playTrack } = usePlayer();
 
   useEffect(() => {
     setValue(search.q ?? "");
   }, [search.q]);
-
-  // Load tracks once for live preview suggestions.
-  useEffect(() => {
-    supabase
-      .from("tracks")
-      .select("id,title,artist,album,cover_url,audio_url,duration_seconds")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => setTracks((data as Track[]) ?? []));
-  }, []);
 
   // Debounced URL sync (only when on the library page so we don't redirect away).
   useEffect(() => {

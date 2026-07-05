@@ -14,7 +14,7 @@ export function NowPlayingPreview() {
   // Re-show the preview whenever a new track starts.
   useEffect(() => {
     if (current) setDismissed(false);
-  }, [current?.id]);
+  }, [current]);
 
   if (!current || dismissed) return null;
 
@@ -37,11 +37,7 @@ export function NowPlayingPreview() {
       <div className="flex gap-3 p-3">
         <div className="relative h-16 w-16 flex-shrink-0">
           {current.cover_url ? (
-            <img
-              src={current.cover_url}
-              alt=""
-              className="h-16 w-16 rounded-sm object-cover"
-            />
+            <img src={current.cover_url} alt="" className="h-16 w-16 rounded-sm object-cover" />
           ) : (
             <AnimatedCover
               seed={current.id}
